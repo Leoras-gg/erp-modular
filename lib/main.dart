@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/supabase_config.dart';
+import 'features/auth/presentation/login_screen.dart';
 
 Future<void> main() async {
   // Garante que os bindings do Flutter estejam prontos
@@ -41,13 +42,8 @@ class MyApp extends StatelessWidget {
           seedColor: const Color(0xFF1A56A0),
         ),
       ),
-      // Por enquanto uma tela placeholder —
-      // o GoRouter entra na próxima etapa
-      home: const Scaffold(
-        body: Center(
-          child: Text('ERP Modular — configurando...'),
-        ),
-      ),
+      // LoginScreen por enquanto — GoRouter entra na próxima sessão
+      home: const LoginScreen(),
     );
   }
 }
