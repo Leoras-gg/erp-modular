@@ -1,26 +1,29 @@
 // lib/main.dart
+//
+// RESPONSABILIDADE: ponto de entrada do aplicativo.
+// Inicializa serviços externos e configura o app raiz.
+//
+// MUDANÇA EM RELAÇÃO À SESSÃO 3:
+// - Removido: home: LoginScreen (navegação hardcoded)
+// - Adicionado: GoRouter via routerProvider (navegação declarativa)
+// O GoRouter agora controla toda a navegação — inclusive
+// o redirecionamento para login ou home baseado no estado de auth.
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'core/supabase_config.dart';
-import 'features/auth/presentation/login_screen.dart';
+import 'core/router.dart';
 
 Future<void> main() async {
-  // Garante que os bindings do Flutter estejam prontos
-  // antes de inicializar serviços externos
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Inicializa o Supabase com as credenciais do projeto
-  // Conceito: configuração centralizada — um único ponto
-  // onde a conexão com o backend é estabelecida
   await Supabase.initialize(
     url: SupabaseConfig.url,
     anonKey: SupabaseConfig.anonKey,
   );
 
-  // ProviderScope é obrigatório no Riverpod —
-  // ele envolve todo o app e permite que qualquer
-  // widget acesse os providers definidos no projeto
   runApp(
     const ProviderScope(
       child: MyApp(),
@@ -28,22 +31,32 @@ Future<void> main() async {
   );
 }
 
-class MyApp extends StatelessWidget {
+// ConsumerWidget porque precisa do routerProvider
+// Conceito: MyApp agora é reativo — o router vem de um provider
+class MyApp extends ConsumerWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
+  Widget build(BuildContext context, WidgetRef ref) {
+    // ref.watch: reconstrói MyApp se o router mudar
+    // Na prática o router não muda — mas é a forma correta
+    // de acessar providers em ConsumerWidget
+    final router = ref.watch(routerProvider);
+
+    return MaterialApp.router(
       title: 'ERP Modular',
       debugShowCheckedModeBanner: false,
+
+      // MaterialApp.router em vez de MaterialApp
+      // Conceito: integra o GoRouter com o sistema de navegação do Flutter
+      routerConfig: router,
+
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF1A56A0),
         ),
       ),
-      // LoginScreen por enquanto — GoRouter entra na próxima sessão
-      home: const LoginScreen(),
     );
   }
 }
