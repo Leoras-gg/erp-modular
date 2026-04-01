@@ -25,6 +25,9 @@ import '../features/estoque/presentation/estoque_screen.dart';
 import '../features/configuracoes/presentation/configuracoes_screen.dart';
 import 'widgets/app_shell.dart';
 
+// Adiciona este import no topo do router.dart:
+import '../features/notas/presentation/notas_screen.dart';
+
 // ============================================================
 // NOMES DAS ROTAS — constantes para evitar strings mágicas
 // ============================================================
@@ -36,6 +39,9 @@ class AppRoutes {
   static const dashboard = '/dashboard';
   static const estoque = '/estoque';
   static const configuracoes = '/configuracoes';
+
+  // Adiciona esta constante em AppRoutes:
+  static const notas = '/notas';
 
   // Construtor privado — esta classe não deve ser instanciada
   // Conceito POO: utility class com apenas membros estáticos
@@ -118,6 +124,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: AppRoutes.configuracoes,
             name: 'configuracoes',
             builder: (context, state) => const ConfiguracoesScreen(),
+          ),
+          // Adiciona esta rota dentro do ShellRoute (junto com estoque, dashboard...):
+          GoRoute(
+            path: AppRoutes.notas,
+            name: 'notas',
+            builder: (context, state) => const NotasScreen(),
           ),
         ],
       ),

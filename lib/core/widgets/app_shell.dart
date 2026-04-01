@@ -92,10 +92,7 @@ class _DesktopShell extends ConsumerWidget {
             extended: extended,
 
             // leading: widget no topo da rail (logo + nome do usuário)
-            leading: _RailHeader(
-              nomeUsuario: nomeUsuario,
-              extended: extended,
-            ),
+            leading: _RailHeader(nomeUsuario: nomeUsuario, extended: extended),
 
             // trailing: widget no rodapé da rail (botão de logout)
             trailing: _RailFooter(
@@ -124,6 +121,12 @@ class _DesktopShell extends ConsumerWidget {
                 icon: Icon(Icons.inventory_2_outlined),
                 selectedIcon: Icon(Icons.inventory_2),
                 label: Text('Estoque'),
+              ),
+              // No NavigationRail destinations, adiciona após estoque:
+              NavigationRailDestination(
+                icon: Icon(Icons.description_outlined),
+                selectedIcon: Icon(Icons.description),
+                label: Text('Notas'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.settings_outlined),
@@ -193,6 +196,12 @@ class _MobileShell extends ConsumerWidget {
             selectedIcon: Icon(Icons.inventory_2),
             label: 'Estoque',
           ),
+          // No NavigationBar destinations, adiciona após estoque:
+          NavigationDestination(
+            icon: Icon(Icons.description_outlined),
+            selectedIcon: Icon(Icons.description),
+            label: 'Notas',
+          ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),
             selectedIcon: Icon(Icons.settings),
@@ -214,7 +223,9 @@ int _selectedIndex(BuildContext context) {
 
   if (location.startsWith(AppRoutes.dashboard)) return 1;
   if (location.startsWith(AppRoutes.estoque)) return 2;
-  if (location.startsWith(AppRoutes.configuracoes)) return 3;
+  // No _selectedIndex, adiciona:
+  if (location.startsWith(AppRoutes.notas)) return 3;
+  if (location.startsWith(AppRoutes.configuracoes)) return 4;
   return 0; // home é o padrão
 }
 
@@ -228,6 +239,8 @@ void _onDestinationSelected(BuildContext context, int index) {
     case 2:
       context.go(AppRoutes.estoque);
     case 3:
+      context.go(AppRoutes.notas);
+    case 4:
       context.go(AppRoutes.configuracoes);
   }
 }
@@ -241,10 +254,7 @@ class _RailHeader extends StatelessWidget {
   final String nomeUsuario;
   final bool extended;
 
-  const _RailHeader({
-    required this.nomeUsuario,
-    required this.extended,
-  });
+  const _RailHeader({required this.nomeUsuario, required this.extended});
 
   @override
   Widget build(BuildContext context) {
@@ -286,10 +296,7 @@ class _RailFooter extends StatelessWidget {
   final bool extended;
   final VoidCallback onLogout;
 
-  const _RailFooter({
-    required this.extended,
-    required this.onLogout,
-  });
+  const _RailFooter({required this.extended, required this.onLogout});
 
   @override
   Widget build(BuildContext context) {
