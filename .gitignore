@@ -50,3 +50,6 @@ lib/core/supabase_config.dart
 # Variáveis de ambiente
 .env
 .env.local
+
+# Configuração de deploy — nunca commitar
+lib/core/config_deploy.dart

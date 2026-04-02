@@ -1,73 +1,62 @@
 // lib/features/auth/presentation/login_screen.dart
 //
 // CAMADA: presentation
-// RESPONSABILIDADE: exibir a UI e capturar eventos do usuário.
-// Esta camada NÃO contém lógica de negócio — só chama métodos
-// do Notifier e reage aos estados que recebe.
+// RESPONSABILIDADE: tela de login com suporte a:
+// - Email salvo localmente (opt-in via checkbox)
+// - Confirmação de senha quando há sessão ativa (devMode = false)
+// - Feedback visual de todos os estados de autenticação
 //
-// CONCEITOS APLICADOS:
-// - ConsumerWidget: widget que acessa providers do Riverpod
-// - Pattern matching com switch sobre sealed class AuthState
-// - Separação clara: UI decide COMO exibir, application decide O QUÊ
+// COMPORTAMENTO POR ESTADO:
+// AuthNaoAutenticado       → formulário normal, email pode estar preenchido
+// AuthAguardandoConfirmacao → formulário com email preenchido e readonly,
+//                             mensagem explicativa de segurança
+// AuthCarregando           → loading indicator
+// AuthErro                 → erro já tratado no Notifier, estado volta para
+//                             AuthNaoAutenticado automaticamente
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/auth_provider.dart';
 
-// ConsumerWidget — substituto do StatelessWidget quando o widget
-// precisa acessar providers. O parâmetro 'ref' dá acesso ao Riverpod.
-// Conceito: a UI observa o estado, não o gerencia.
 class LoginScreen extends ConsumerWidget {
   const LoginScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // ref.watch — observa o estado e reconstrói o widget quando muda.
-    // Conceito Riverpod: reatividade declarativa —
-    // você não chama setState(), o Riverpod reconstrói automaticamente.
     final authState = ref.watch(authProvider);
 
     return Scaffold(
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
-          // switch sobre sealed class — Dart exige que todos os
-          // casos sejam tratados. Se adicionarmos um novo AuthState,
-          // o compilador avisa aqui imediatamente.
           child: switch (authState) {
-            AuthCarregando() => const Center(
+            AuthCarregando() || AuthInicial() => const Center(
                 child: CircularProgressIndicator(),
               ),
+
+            AuthAutenticado() => const Center(
+                child: CircularProgressIndicator(),
+              ),
+
+            // Sessão ativa mas app exige senha — mostra aviso de segurança
+            AuthAguardandoConfirmacao(:final emailPreenchido) => _LoginForm(
+                emailInicial: emailPreenchido,
+                emailReadOnly: true, // não deixa trocar o email
+                mensagemSeguranca:
+                    'Por segurança, confirme sua senha para continuar.',
+              ),
+
+            // Login normal — email pode estar preenchido por "lembrar email"
+            AuthNaoAutenticado(:final emailPreenchido) => _LoginForm(
+                emailInicial: emailPreenchido,
+                emailReadOnly: false,
+              ),
+
+            // Erro — o Notifier já volta para AuthNaoAutenticado após 2s
             AuthErro(:final mensagem) => _LoginForm(
                 erro: mensagem,
+                emailReadOnly: false,
               ),
-            AuthAutenticado(:final usuario) => Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.check_circle,
-                        color: Colors.green, size: 64),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Bem-vindo, ${usuario.nome}',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      usuario.role,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 32),
-                    ElevatedButton(
-                      onPressed: () =>
-                          ref.read(authProvider.notifier).logout(),
-                      child: const Text('Sair'),
-                    ),
-                  ],
-                ),
-              ),
-            // Todos os demais estados exibem o formulário
-            _ => const _LoginForm(),
           },
         ),
       ),
@@ -75,45 +64,57 @@ class LoginScreen extends ConsumerWidget {
   }
 }
 
-// Widget privado — só LoginScreen pode usar
-// Conceito POO: encapsulamento de componente visual
-// O underscore no nome torna a classe privada ao arquivo
 class _LoginForm extends ConsumerStatefulWidget {
+  final String? emailInicial;
+  final bool emailReadOnly;
   final String? erro;
+  final String? mensagemSeguranca;
 
-  const _LoginForm({this.erro});
+  const _LoginForm({
+    this.emailInicial,
+    required this.emailReadOnly,
+    this.erro,
+    this.mensagemSeguranca,
+  });
 
   @override
   ConsumerState<_LoginForm> createState() => _LoginFormState();
 }
 
 class _LoginFormState extends ConsumerState<_LoginForm> {
-  // Controllers gerenciam o texto dos campos
-  // São criados aqui pois pertencem ao ciclo de vida deste widget
   final _emailController = TextEditingController();
   final _senhaController = TextEditingController();
-
-  // Chave do formulário — permite validação programática
   final _formKey = GlobalKey<FormState>();
+
+  // Estado local do checkbox "Lembrar meu email"
+  bool _lembrarEmail = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Preenche o email se foi passado (salvo anteriormente ou da sessão)
+    if (widget.emailInicial != null) {
+      _emailController.text = widget.emailInicial!;
+      // Se o email veio preenchido, assume que "lembrar" estava ativo
+      _lembrarEmail = true;
+    }
+  }
 
   @override
   void dispose() {
-    // Conceito: gerenciamento de recursos — sempre liberar
-    // controllers quando o widget é removido da árvore
     _emailController.dispose();
     _senhaController.dispose();
     super.dispose();
   }
 
   void _submeter() {
-    // Valida todos os campos do formulário antes de chamar o login
     if (_formKey.currentState?.validate() != true) return;
 
-    // ref.read — usado para ações pontuais, não observação contínua.
-    // Conceito: a UI chama o método do Notifier, não modifica estado.
     ref.read(authProvider.notifier).login(
           _emailController.text.trim(),
           _senhaController.text,
+          lembrarEmail: _lembrarEmail,
         );
   }
 
@@ -125,6 +126,7 @@ class _LoginFormState extends ConsumerState<_LoginForm> {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // ---- CABEÇALHO ----
           Text(
             'ERP Modular',
             style: Theme.of(context).textTheme.headlineMedium?.copyWith(
@@ -141,10 +143,34 @@ class _LoginFormState extends ConsumerState<_LoginForm> {
                 ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 48),
+          const SizedBox(height: 40),
 
-          // Exibe erro se existir — recebido como parâmetro,
-          // não gerado aqui. A camada application define a mensagem.
+          // ---- AVISO DE SEGURANÇA (quando há sessão ativa) ----
+          if (widget.mensagemSeguranca != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.security, color: Colors.blue.shade700, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      widget.mensagemSeguranca!,
+                      style: TextStyle(color: Colors.blue.shade700),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // ---- MENSAGEM DE ERRO ----
           if (widget.erro != null) ...[
             Container(
               padding: const EdgeInsets.all(12),
@@ -162,49 +188,79 @@ class _LoginFormState extends ConsumerState<_LoginForm> {
             const SizedBox(height: 16),
           ],
 
+          // ---- CAMPO EMAIL ----
           TextFormField(
             controller: _emailController,
+            // emailReadOnly = true quando há sessão ativa (confirmar senha)
+            // O usuário não pode trocar de conta sem deslogar primeiro
+            readOnly: widget.emailReadOnly,
             keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Email',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.email_outlined),
+              border: const OutlineInputBorder(),
+              prefixIcon: const Icon(Icons.email_outlined),
+              // Indica visualmente que o campo está bloqueado
+              filled: widget.emailReadOnly,
+              fillColor: widget.emailReadOnly
+                  ? Colors.grey.shade100
+                  : null,
+              suffixIcon: widget.emailReadOnly
+                  ? const Tooltip(
+                      message: 'Para trocar de usuário, clique em Sair',
+                      child: Icon(Icons.lock_outline, size: 18),
+                    )
+                  : null,
             ),
-            // Validação inline — retorna String (erro) ou null (válido)
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
                 return 'Informe o email';
               }
-              if (!value.contains('@')) {
-                return 'Email inválido';
-              }
+              if (!value.contains('@')) return 'Email inválido';
               return null;
             },
           ),
           const SizedBox(height: 16),
 
+          // ---- CAMPO SENHA ----
           TextFormField(
             controller: _senhaController,
             obscureText: true,
+            autofocus: widget.emailReadOnly, // foca na senha quando email já está preenchido
             decoration: const InputDecoration(
               labelText: 'Senha',
               border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.lock_outlined),
             ),
             validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Informe a senha';
-              }
-              if (value.length < 6) {
-                return 'Senha deve ter pelo menos 6 caracteres';
-              }
+              if (value == null || value.isEmpty) return 'Informe a senha';
+              if (value.length < 6) return 'Senha deve ter ao menos 6 caracteres';
               return null;
             },
-            // Permite submeter pelo teclado sem tocar no botão
             onFieldSubmitted: (_) => _submeter(),
           ),
+          const SizedBox(height: 8),
+
+          // ---- CHECKBOX LEMBRAR EMAIL ----
+          // Só aparece quando o email não está bloqueado (não é confirmação)
+          if (!widget.emailReadOnly)
+            CheckboxListTile(
+              value: _lembrarEmail,
+              onChanged: (value) {
+                setState(() => _lembrarEmail = value ?? false);
+              },
+              title: const Text('Lembrar meu email neste dispositivo'),
+              subtitle: const Text(
+                'A senha nunca é salva — apenas o email.',
+                style: TextStyle(fontSize: 11),
+              ),
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+
           const SizedBox(height: 24),
 
+          // ---- BOTÃO ENTRAR ----
           ElevatedButton(
             onPressed: _submeter,
             style: ElevatedButton.styleFrom(
@@ -212,6 +268,19 @@ class _LoginFormState extends ConsumerState<_LoginForm> {
             ),
             child: const Text('Entrar'),
           ),
+
+          // ---- LINK TROCAR USUÁRIO (quando email está bloqueado) ----
+          if (widget.emailReadOnly) ...[
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: () {
+                // Faz logout completo — limpa sessão Supabase
+                // Na próxima tela, email NÃO estará bloqueado
+                ref.read(authProvider.notifier).logout();
+              },
+              child: const Text('Não sou eu — trocar usuário'),
+            ),
+          ],
         ],
       ),
     );

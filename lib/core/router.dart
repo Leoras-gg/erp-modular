@@ -172,25 +172,27 @@ class RouterNotifier extends ChangeNotifier {
     final isLoggedIn = authState is AuthAutenticado;
     final isLoggingIn = state.matchedLocation == AppRoutes.login;
 
-    // Caso 1: auth ainda carregando — não redireciona
-    // Deixa o GoRouter mostrar a tela atual enquanto espera
+    // Carregando — não redireciona
     if (authState is AuthInicial || authState is AuthCarregando) {
       return null;
     }
 
-    // Caso 2: não autenticado tentando acessar rota protegida
-    // → redireciona para login
+    // Aguardando confirmação de senha (devMode = false com sessão ativa)
+    // → vai para login com email preenchido
+    if (authState is AuthAguardandoConfirmacao && !isLoggingIn) {
+      return AppRoutes.login;
+    }
+
+    // Não autenticado tentando acessar rota protegida → login
     if (!isLoggedIn && !isLoggingIn) {
       return AppRoutes.login;
     }
 
-    // Caso 3: autenticado tentando acessar o login
-    // → redireciona para home
+    // Autenticado tentando acessar login → home
     if (isLoggedIn && isLoggingIn) {
       return AppRoutes.home;
     }
 
-    // Caso 4: tudo certo — permite a navegação
     return null;
   }
 }

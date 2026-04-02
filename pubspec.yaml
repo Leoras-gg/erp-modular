@@ -39,7 +39,7 @@ dependencies:
   go_router: ^17.1.0
   xml: ^6.6.1
   file_picker: ^10.3.10
-  
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:
