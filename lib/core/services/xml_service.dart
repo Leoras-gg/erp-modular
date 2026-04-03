@@ -68,7 +68,6 @@ class XmlService {
   // ao Contribuinte) disponível em www.nfe.fazenda.gov.br
   // Todas as tags do XML NF-e pertencem implicitamente a este namespace
   // quando ele é declarado na raiz com xmlns="..."
-  static const _namespacePfe = 'http://www.portalfiscal.inf.br/nfe';
 
   // A chave de acesso tem SEMPRE 44 dígitos — é uma regra do leiaute
   static const _tamanhoChaveAcesso = 44;
@@ -92,13 +91,16 @@ class XmlService {
   // Ou seja: uma função que recebe XmlNode + String e retorna Iterable.
   static Iterable<XmlElement> Function(XmlNode, String) _criarFindTag() {
     return (XmlNode node, String tag) {
-      // Tenta 1: com namespace oficial da NF-e
-      var resultado = node.findAllElements(tag, namespace: _namespacePfe);
-      // Tenta 2: sem namespace (fallback para XMLs de teste)
-      if (resultado.isEmpty) {
-        resultado = node.findAllElements(tag);
-      }
-      return resultado;
+      // Usa localName para ignorar prefixos de namespace
+      // Compatível com todos os formatos de NF-e
+      final filhos = node.children
+          .whereType<XmlElement>()
+          .where((e) => e.localName == tag);
+      if (filhos.isNotEmpty) return filhos;
+
+      return node.descendants
+          .whereType<XmlElement>()
+          .where((e) => e.localName == tag);
     };
   }
 

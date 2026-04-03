@@ -227,7 +227,6 @@ class NotaFiscal extends DocumentoFiscal {
     // Mas XMLs de teste frequentemente não têm namespace.
     // A solução: tentar COM namespace primeiro, depois SEM.
     // Isso garante compatibilidade com ambos os formatos.
-    const ns = 'http://www.portalfiscal.inf.br/nfe';
 
     // _findTag: busca uma tag em qualquer nó da árvore XML,
     // com fallback para busca sem namespace.
@@ -235,14 +234,23 @@ class NotaFiscal extends DocumentoFiscal {
     // Parâmetro node: o nó XML onde iniciar a busca
     // Parâmetro tag: nome da tag a procurar (ex: 'infNFe', 'emit')
     // Retorno: Iterable de XmlElement com todos os resultados
+    // Função auxiliar MAIS ROBUSTA — usa localName para ignorar prefixos
+    // Isso resolve todos os casos de namespace de uma vez:
+    //   xmlns="..." → namespace padrão → localName funciona
+    //   xmlns:nfe="..." <nfe:det> → prefixo explícito → localName funciona
+    //   sem namespace → localName funciona
     Iterable<XmlElement> findTag(XmlNode node, String tag) {
-      // Tenta primeiro com namespace oficial da NF-e
-      var resultado = node.findAllElements(tag, namespace: ns);
-      // Se não encontrou, tenta sem namespace (XMLs sem declaração)
-      if (resultado.isEmpty) {
-        resultado = node.findAllElements(tag);
-      }
-      return resultado;
+      // Primeiro tenta direto nos filhos (mais eficiente para tags esperadas)
+      final filhos = node.children
+          .whereType<XmlElement>()
+          .where((e) => e.localName == tag);
+      if (filhos.isNotEmpty) return filhos;
+
+      // Se não achou nos filhos diretos, busca em toda a descendência
+      // Útil para tags como <UF> que está dentro de <enderEmit>
+      return node.descendants
+          .whereType<XmlElement>()
+          .where((e) => e.localName == tag);
     }
 
     // ============================================================
@@ -368,7 +376,16 @@ class NotaFiscal extends DocumentoFiscal {
     // CONCEITO: map() em coleções
     // Transforma cada elemento de uma coleção aplicando uma função.
     // Aqui: Iterable<XmlElement> → List<ItemNota>
-    final detElements = findTag(infNFe, 'det');
+    // ANTES — pode falhar com namespace em alguns casos:
+    // final detElements = findTag(infNFe, 'det');
+
+    // DEPOIS — busca filhos diretos de infNFe por nome,
+    // ignorando namespace para máxima compatibilidade com
+    // XMLs de NF-e reais que variam na declaração de namespace
+    final detElements = infNFe.children
+        .whereType<XmlElement>()
+        .where((e) => e.localName == 'det');
+
     final itens = detElements.map((det) {
       // notaId é passado vazio — será preenchido ao salvar no banco
       return _parsearItem(det, '', findTag);
