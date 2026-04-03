@@ -171,6 +171,23 @@ class ItemNota {
     );
   }
 
+  // Factory mínimo — usado quando só precisamos do id para contagem
+  factory ItemNota.fromMapMinimo(Map<String, dynamic> map) {
+    return ItemNota(
+      id: map['id'] as String,
+      notaId: map['nota_id'] as String? ?? '',
+      numeroItem: 0,
+      codigoProdutoEmitente: '',
+      descricaoProduto: '',
+      ncm: '',
+      cfop: '',
+      quantidade: 0,
+      unidadeMedida: '',
+      valorUnitario: 0,
+      valorTotal: 0,
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,
