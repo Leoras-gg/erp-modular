@@ -16,13 +16,14 @@
 // o xmlUrl ficará null e pode ser corrigido manualmente.
 // Esta é uma limitação conhecida documentada aqui.
 
+// Adiciona este import no topo do arquivo:
+import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/errors/resultado.dart';
 import '../domain/i_nota_fiscal_repository.dart';
 import '../domain/item_nota.dart';
 import '../domain/nota_fiscal.dart';
-// Adiciona este import no topo do arquivo:
-import 'dart:convert';
+
 
 class SupabaseNotaFiscalRepository implements INotaFiscalRepository {
   final _client = Supabase.instance.client;
@@ -34,31 +35,34 @@ class SupabaseNotaFiscalRepository implements INotaFiscalRepository {
 @override
   Future<Resultado<List<NotaFiscal>>> buscarTodas() async {
     try {
-      // Busca as notas sem join por ora — o join com itens
-      // estava causando falha silenciosa quando nota_id estava ausente
-      // no map retornado pelo Supabase. Buscamos as notas primeiro,
-      // depois buscamos os counts de itens separadamente.
+      // Busca apenas as notas — sem join com itens
+      // O join estava causando problemas com o fromMapMinimo
+      // Estratégia: busca notas, depois count de itens por nota em paralelo
       final data = await _client
           .from(_tabelaNotas)
           .select()
           .isFilter('inativo_em', null)
           .order('data_emissao', ascending: false);
 
-      // Para cada nota, busca o count de itens
-      // Conceito: Promise.all equivalente em Dart com Future.wait
+      // Future.wait executa todas as queries em paralelo
+      // Conceito: paralelismo com Future.wait — mais eficiente que
+      // executar uma query por vez em sequência (await dentro de loop)
       final notas = await Future.wait(
         (data as List).map((map) async {
-          // Conta os itens desta nota no banco
+          final notaId = map['id'] as String;
+
+          // Busca apenas o id dos itens — só precisamos do count
           final itensData = await _client
               .from(_tabelaItens)
               .select('id')
-              .eq('nota_id', map['id'] as String);
+              .eq('nota_id', notaId);
 
-          // Cria ItemNota mínimos só para ter o count correto na UI
+          // Monta itens mínimos passando nota_id explicitamente
+          // CORREÇÃO: nota_id era ausente antes, causando count errado
           final itensMinimos = (itensData as List).map((i) =>
             ItemNota.fromMapMinimo({
               'id': i['id'] as String,
-              'nota_id': map['id'] as String, // garante nota_id preenchido
+              'nota_id': notaId,  // garantido aqui — não vem do SELECT
             }),
           ).toList();
 
@@ -71,6 +75,95 @@ class SupabaseNotaFiscalRepository implements INotaFiscalRepository {
       return Falha(TipoFalha.servidor, 'Erro ao buscar notas', detalhes: e);
     } catch (e) {
       return Falha(TipoFalha.desconhecido, 'Erro inesperado', detalhes: e);
+    }
+  }
+
+  @override
+  Future<Resultado<NotaFiscal>> importar({
+    required NotaFiscal nota,
+    required String xmlContent,
+  }) async {
+    try {
+      // ---- Passo 1: INSERT da nota ----
+      // toMap() da NotaFiscal também não inclui 'id' — banco gera
+      final notaData = await _client
+          .from(_tabelaNotas)
+          .insert(nota.toMap())
+          .select()
+          .single();
+
+      final notaId = notaData['id'] as String;
+
+      // ---- Passo 2: INSERT dos itens ----
+      // CORREÇÃO CRÍTICA: ItemNota.toMap() não inclui 'id' vazio
+      // Antes: {'id': '', 'nota_id': notaId, ...} → erro UUID no PostgreSQL
+      // Agora: {'nota_id': notaId, ...} → banco gera UUID automaticamente
+      if (nota.itens.isNotEmpty) {
+        final itensParaSalvar = nota.itens.map((item) {
+          final map = item.toMap(); // sem 'id'
+          map['nota_id'] = notaId;  // sobrescreve o notaId vazio do parse
+          return map;
+        }).toList();
+
+        // INSERT de todos os itens de uma vez (batch insert)
+        // Mais eficiente que inserir um por vez
+        await _client.from(_tabelaItens).insert(itensParaSalvar);
+      }
+
+      // ---- Passo 3: Upload do XML para Storage ----
+      // utf8.encode converte String para List<int> de bytes UTF-8
+      // Necessário porque uploadBinary espera Uint8List
+      String? xmlUrl;
+      try {
+        final caminhoStorage = '${nota.empresaId}/$notaId.xml';
+        final xmlBytes = utf8.encode(xmlContent);
+
+        await _client.storage
+            .from(_bucketXml)
+            .uploadBinary(
+              caminhoStorage,
+              xmlBytes,
+              fileOptions: const FileOptions(
+                contentType: 'application/xml',
+                upsert: false,
+              ),
+            );
+
+        xmlUrl = _client.storage
+            .from(_bucketXml)
+            .getPublicUrl(caminhoStorage);
+
+        await _client
+            .from(_tabelaNotas)
+            .update({'xml_url': xmlUrl})
+            .eq('id', notaId);
+      } catch (storageError) {
+        // Storage falhou mas nota e itens estão salvos
+        // Limitação conhecida: sem transação atômica no cliente Supabase
+        // xmlUrl ficará null — aceitável, não bloqueia o fluxo operacional
+      }
+
+      // Retorna a nota completa com itens reais do banco
+      return buscarPorId(notaId);
+    } on PostgrestException catch (e) {
+      if (e.code == '23505') {
+        return Falha(
+          TipoFalha.duplicidade,
+          'Esta nota fiscal já foi importada anteriormente.',
+        );
+      }
+      // MELHORIA: expõe o erro real para diagnóstico
+      return Falha(
+        TipoFalha.servidor,
+        'Erro ao importar nota: ${e.message} (código: ${e.code})',
+        detalhes: e,
+      );
+    } catch (e) {
+      return Falha(
+        TipoFalha.desconhecido,
+        'Erro inesperado ao importar: ${e.toString()}',
+        detalhes: e,
+      );
     }
   }
   
@@ -122,81 +215,6 @@ class SupabaseNotaFiscalRepository implements INotaFiscalRepository {
       return Falha(TipoFalha.desconhecido, 'Erro inesperado', detalhes: e);
     }
   }
-
-@override
-  Future<Resultado<NotaFiscal>> importar({
-    required NotaFiscal nota,
-    required String xmlContent,
-  }) async {
-    try {
-      // ---- Passo 1: Salva a nota fiscal ----
-      final notaData = await _client
-          .from(_tabelaNotas)
-          .insert(nota.toMap())
-          .select()
-          .single();
-
-      final notaId = notaData['id'] as String;
-
-      // ---- Passo 2: Salva os itens ----
-      if (nota.itens.isNotEmpty) {
-        final itensParaSalvar = nota.itens
-            .map((item) => {
-                  ...item.toMap(),
-                  'nota_id': notaId, // vincula ao id real gerado pelo banco
-                })
-            .toList();
-
-        await _client.from(_tabelaItens).insert(itensParaSalvar);
-      }
-
-      // ---- Passo 3: Upload do XML para o Storage ----
-      // Convertemos a String XML para bytes usando utf8.encode()
-      // que é o método correto em Dart para String → Uint8List
-      String? xmlUrl;
-      try {
-        final caminhoStorage = '${nota.empresaId}/$notaId.xml';
-        // utf8.encode retorna List<int> com os bytes UTF-8 do XML
-        final xmlBytes = utf8.encode(xmlContent);
-
-        await _client.storage
-            .from(_bucketXml)
-            .uploadBinary(
-              caminhoStorage,
-              xmlBytes,
-              fileOptions: const FileOptions(
-                contentType: 'application/xml',
-                upsert: false,
-              ),
-            );
-
-        xmlUrl = _client.storage
-            .from(_bucketXml)
-            .getPublicUrl(caminhoStorage);
-
-        await _client
-            .from(_tabelaNotas)
-            .update({'xml_url': xmlUrl})
-            .eq('id', notaId);
-      } catch (_) {
-        // Storage falhou — nota e itens já salvos no banco
-        // xmlUrl permanece null — pode ser corrigido manualmente
-      }
-
-      return buscarPorId(notaId);
-    } on PostgrestException catch (e) {
-      if (e.code == '23505') {
-        return Falha(
-          TipoFalha.duplicidade,
-          'Esta nota fiscal já foi importada anteriormente.',
-        );
-      }
-      return Falha(TipoFalha.servidor, 'Erro ao importar nota', detalhes: e);
-    } catch (e) {
-      return Falha(TipoFalha.desconhecido, 'Erro inesperado ao importar', detalhes: e);
-    }
-  }
-
 
   @override
   Future<Resultado<void>> atualizarStatus(

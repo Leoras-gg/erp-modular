@@ -171,26 +171,30 @@ class ItemNota {
     );
   }
 
-  // Factory mínimo — usado quando só precisamos do id para contagem
-  factory ItemNota.fromMapMinimo(Map<String, dynamic> map) {
-    return ItemNota(
-      id: map['id'] as String,
-      notaId: map['nota_id'] as String? ?? '',
-      numeroItem: 0,
-      codigoProdutoEmitente: '',
-      descricaoProduto: '',
-      ncm: '',
-      cfop: '',
-      quantidade: 0,
-      unidadeMedida: '',
-      valorUnitario: 0,
-      valorTotal: 0,
-    );
-  }
-
+// ============================================================
+  // toMap — serialização para o banco de dados
+  // ============================================================
+  // ATENÇÃO: 'id' é OMITIDO intencionalmente.
+  //
+  // CONCEITO: geração de UUID pelo banco (server-side default)
+  // A coluna 'id' no PostgreSQL é definida como:
+  //   id uuid primary key default gen_random_uuid()
+  //
+  // Isso significa que o banco GERA o UUID automaticamente
+  // quando fazemos INSERT sem informar o 'id'.
+  //
+  // SE enviássemos 'id': '' (string vazia), o PostgreSQL tentaria
+  // converter '' para UUID e falharia com:
+  //   "invalid input syntax for type uuid: """
+  // Esse erro estava sendo capturado silenciosamente pelo try/catch
+  // do repositório — a nota era salva mas os itens não.
+  //
+  // REGRA: nunca inclua 'id' no toMap() de entidades que têm
+  // id gerado pelo banco. O fromMap() recebe o id do banco,
+  // o toMap() nunca o envia de volta.
   Map<String, dynamic> toMap() {
     return {
-      'id': id,
+      // 'id' OMITIDO — gerado pelo PostgreSQL via gen_random_uuid()
       'nota_id': notaId,
       'produto_id': produtoId,
       'numero_item': numeroItem,
@@ -208,6 +212,30 @@ class ItemNota {
       'valor_total': valorTotal,
       'quantidade_conferida': quantidadeConferida,
     };
+  }
+
+  // ============================================================
+  // fromMapMinimo — cria ItemNota mínimo só para contagem
+  // ============================================================
+  // Usado em buscarTodas() onde não precisamos dos dados completos,
+  // apenas saber QUANTOS itens cada nota tem para exibir no card.
+  //
+  // Recebe o map com 'id' e 'nota_id' garantidos pelo repositório.
+  // Todos os outros campos recebem valores padrão — não são usados.
+  factory ItemNota.fromMapMinimo(Map<String, dynamic> map) {
+    return ItemNota(
+      id: map['id'] as String,
+      notaId: map['nota_id'] as String,  // garantido pelo repositório
+      numeroItem: 0,
+      codigoProdutoEmitente: '',
+      descricaoProduto: '',
+      ncm: '',
+      cfop: '',
+      quantidade: 0,
+      unidadeMedida: '',
+      valorUnitario: 0,
+      valorTotal: 0,
+    );
   }
 
   ItemNota copyWith({
