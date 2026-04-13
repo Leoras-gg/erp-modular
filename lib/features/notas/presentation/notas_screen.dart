@@ -16,6 +16,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/nota_fiscal_notifier.dart';
 import '../domain/nota_fiscal.dart';
+// Adiciona esta linha junto com os outros imports:
+import 'package:go_router/go_router.dart';
 
 class NotasScreen extends ConsumerWidget {
   const NotasScreen({super.key});
@@ -145,8 +147,18 @@ class _ListaNotas extends StatelessWidget {
 }
 
 // ============================================================
-// CARD DE NOTA FISCAL
+// CARD DE NOTA FISCAL — simplificado para listagem
 // ============================================================
+// O card exibe apenas os dados essenciais de identificação.
+// Detalhes completos (itens, NCM, CFOP...) ficam na tela de detalhe.
+//
+// CONCEITO DE UX: progressive disclosure — mostrar o mínimo necessário
+// na listagem e o máximo na tela de detalhe. Isso mantém a listagem
+// rápida e limpa sem sobrecarregar o usuário com informação.
+//
+// onTap navega para /notas/:id usando context.push() — não context.go().
+// push() empilha a tela de detalhe sobre a listagem, permitindo voltar.
+// go() substituiria a rota atual — incorreto aqui.
 class _NotaCard extends StatelessWidget {
   final NotaFiscal nota;
 
@@ -156,91 +168,96 @@ class _NotaCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // Número e série
-                Text(
-                  'NF-e ${nota.numero} / Série ${nota.serie}',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-                // Badge de status com cor
-                _StatusBadge(status: nota.status),
-              ],
-            ),
-            const SizedBox(height: 8),
-
-            // Emitente
-            Text(
-              nota.emitenteNome,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            Text(
-              'CNPJ: ${_formatarCnpj(nota.emitenteCnpj)} — ${nota.emitenteUf}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+      // InkWell adiciona efeito ripple ao toque — feedback visual
+      child: InkWell(
+        onTap: () {
+          // context.push() empilha a tela — usuário pode voltar com seta
+          // Conceito GoRouter: push vs go
+          // go() navega para uma rota substituindo a atual (sem botão voltar)
+          // push() empilha a nova rota sobre a atual (com botão voltar)
+          context.push('/notas/${nota.id}');
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'NF-e ${nota.numero} / Série ${nota.serie}',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
-            ),
-            const SizedBox(height: 8),
-
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '${nota.totalItens} item(ns)',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                Text(
-                  'R\$ ${nota.valorTotal.toStringAsFixed(2)}',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                ),
-              ],
-            ),
-          ],
+                  _StatusBadge(status: nota.status),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                nota.emitenteNome,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              Text(
+                'CNPJ: ${_formatarCnpj(nota.emitenteCnpj)} — ${nota.emitenteUf}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Count de itens — confirmado funcionando após correção do Session 7
+                  Text(
+                    '${nota.totalItens} item(ns)',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  Text(
+                    'R\$ ${nota.valorTotal.toStringAsFixed(2)}',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // Formata CNPJ: 00.000.000/0000-00
   String _formatarCnpj(String cnpj) {
     if (cnpj.length != 14) return cnpj;
-    return '${cnpj.substring(0, 2)}.'
-        '${cnpj.substring(2, 5)}.'
-        '${cnpj.substring(5, 8)}/'
-        '${cnpj.substring(8, 12)}-'
-        '${cnpj.substring(12)}';
+    return '${cnpj.substring(0, 2)}.${cnpj.substring(2, 5)}'
+        '.${cnpj.substring(5, 8)}/${cnpj.substring(8, 12)}'
+        '-${cnpj.substring(12)}';
   }
 }
 
-// Badge colorido por status
+// Badge de status colorido — mesmo padrão visual da nota_detalhe_screen
+// Duplicado aqui porque é privado (_) ao arquivo — não pode ser importado
+// do outro arquivo. Quando houver um widget compartilhado de badges,
+// extrair para lib/core/widgets/status_badge.dart
 class _StatusBadge extends StatelessWidget {
   final String status;
-
   const _StatusBadge({required this.status});
 
   @override
   Widget build(BuildContext context) {
     final (cor, label) = switch (status) {
-      'importada'        => (Colors.blue, 'Importada'),
-      'em_conferencia'   => (Colors.orange, 'Em conferência'),
-      'conferida'        => (Colors.teal, 'Conferida'),
-      'divergente'       => (Colors.red, 'Divergente'),
-      'finalizada'       => (Colors.green, 'Finalizada'),
-      'cancelada'        => (Colors.grey, 'Cancelada'),
-      _                  => (Colors.grey, status),
+      'importada'      => (Colors.blue, 'Importada'),
+      'em_conferencia' => (Colors.orange, 'Em conferência'),
+      'conferida'      => (Colors.teal, 'Conferida'),
+      'divergente'     => (Colors.red, 'Divergente'),
+      'finalizada'     => (Colors.green, 'Finalizada'),
+      'cancelada'      => (Colors.grey, 'Cancelada'),
+      _                => (Colors.grey, status),
     };
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
