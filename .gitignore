@@ -53,3 +53,6 @@ lib/core/supabase_config.dart
 
 # Configuração de deploy — nunca commitar
 lib/core/config_deploy.dart
+
+# Codex
+.codex
