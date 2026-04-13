@@ -27,6 +27,7 @@ import 'widgets/app_shell.dart';
 
 // Adiciona este import no topo do router.dart:
 import '../features/notas/presentation/notas_screen.dart';
+import '../features/notas/presentation/nota_detalhe_screen.dart';
 
 // ============================================================
 // NOMES DAS ROTAS — constantes para evitar strings mágicas
@@ -39,6 +40,7 @@ class AppRoutes {
   static const dashboard = '/dashboard';
   static const estoque = '/estoque';
   static const configuracoes = '/configuracoes';
+  static const notaDetalhe = '/notas/:id';
 
   // Adiciona esta constante em AppRoutes:
   static const notas = '/notas';
@@ -131,6 +133,20 @@ final routerProvider = Provider<GoRouter>((ref) {
             name: 'notas',
             builder: (context, state) => const NotasScreen(),
           ),
+          // Adiciona a rota dentro do ShellRoute, após a rota de /notas:
+GoRoute(
+  // :id é um parâmetro dinâmico — GoRouter extrai automaticamente
+  // e disponibiliza via state.pathParameters['id']
+  path: AppRoutes.notaDetalhe,
+  name: 'nota-detalhe',
+  builder: (context, state) {
+    // pathParameters['id'] contém o UUID da nota
+    // O operador ! indica que esperamos que o valor exista —
+    // o GoRouter garante isso pois a rota exige o parâmetro
+    final notaId = state.pathParameters['id']!;
+    return NotaDetalheScreen(notaId: notaId);
+  },
+),
         ],
       ),
     ],
