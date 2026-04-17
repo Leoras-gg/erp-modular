@@ -94,6 +94,17 @@ class SupabaseConferenciaRepository implements IConferenciaRepository {
     }
   }
 
+// OPERAÇÃO iniciar():
+// Ao iniciar uma conferência, o sistema:
+// 1. Cria o registro em conferencias com status = 'em_andamento'
+// 2. Cria um ConferenciaItem para cada ItemNota
+// 3. Atualiza a nota para indicar que está em conferência
+//
+// IMPORTANTE:
+// No fluxo atual da UI, "iniciar" não significa "pré-criar".
+// Significa começar efetivamente o trabalho operacional.
+// Por isso o status já nasce em_andamento.
+
   @override
   Future<Resultado<Conferencia>> iniciar({
     required String notaId,
@@ -109,7 +120,7 @@ class SupabaseConferenciaRepository implements IConferenciaRepository {
           .insert({
             'empresa_id': empresaId,
             'nota_id': notaId,
-            'status': 'criada',
+            'status': 'em_conferencia',
             'operador_id': operadorId,
             'iniciado_em': DateTime.now().toIso8601String(),
             'criado_em': DateTime.now().toIso8601String(),
@@ -132,11 +143,11 @@ class SupabaseConferenciaRepository implements IConferenciaRepository {
 
       await _client.from(_tabelaItens).insert(itensParaSalvar);
 
-      // ---- Passo 3: atualiza status da nota para em_conferencia ----
-      await _client
-          .from(_tabelaNotas)
-          .update({'status': 'em_conferencia'})
-          .eq('id', notaId);
+      // // ---- Passo 3: atualiza status da nota para em_conferencia ----
+      // await _client
+      //     .from(_tabelaNotas)
+      //     .update({'status': 'em_conferencia'})
+      //     .eq('id', notaId);
 
       // ---- Passo 4: retorna a conferência completa ----
       return buscarPorId(conferenciaId);
