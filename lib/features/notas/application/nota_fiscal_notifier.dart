@@ -187,6 +187,37 @@ class NotaFiscalNotifier extends Notifier<NotaFiscalState> {
   Future<void> recarregar() => _carregarNotas();
 }
 
+// ============================================================
+// PROVIDER DE DETALHE — carrega nota específica por ID
+// ============================================================
+// Conceito Riverpod: Family providers permitem criar um provider
+// parametrizado. notaDetalheProvider(id) cria um provider único
+// para cada nota ID — cada ID tem seu próprio cache e estado.
+//
+// Por que não reusar o notaFiscalProvider?
+// O notaFiscalProvider gerencia o estado da LISTAGEM.
+// O notaDetalheProvider gerencia o estado de UMA NOTA ESPECÍFICA.
+// São responsabilidades diferentes — providers diferentes.
+// Provider de detalhe de nota específica por ID
+// Parametrizado com .family — cada nota ID tem cache independente
+// Movido para application/ porque providers pertencem a esta camada,
+// não a presentation/. Isso permite que outros widgets e telas
+// acessem o detalhe de uma nota sem depender de uma tela específica.
+
+final notaDetalheProvider = FutureProvider.family<NotaFiscal, String>(
+  (ref, notaId) async {
+    // Acessa o repositório diretamente via provider
+    // Para carregar uma nota por ID com todos os itens
+    final repository = ref.read(notaFiscalRepositoryProvider);
+    final resultado = await repository.buscarPorId(notaId);
+
+    return switch (resultado) {
+      Sucesso(:final dados) => dados,
+      Falha(:final mensagem) => throw Exception(mensagem),
+    };
+  },
+);
+
 final notaFiscalProvider =
     NotifierProvider<NotaFiscalNotifier, NotaFiscalState>(() {
   return NotaFiscalNotifier();

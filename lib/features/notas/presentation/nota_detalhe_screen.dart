@@ -25,34 +25,12 @@ import '../application/nota_fiscal_notifier.dart';
 import '../domain/item_nota.dart';
 import '../domain/nota_fiscal.dart';
 // Adiciona estas duas linhas no início do arquivo, junto com os outros imports:
+// ignore: unused_import
 import '../../../core/errors/resultado.dart';
 // ignore: unused_import
 import 'package:go_router/go_router.dart';
 
-// ============================================================
-// PROVIDER DE DETALHE — carrega nota específica por ID
-// ============================================================
-// Conceito Riverpod: Family providers permitem criar um provider
-// parametrizado. notaDetalheProvider(id) cria um provider único
-// para cada nota ID — cada ID tem seu próprio cache e estado.
-//
-// Por que não reusar o notaFiscalProvider?
-// O notaFiscalProvider gerencia o estado da LISTAGEM.
-// O notaDetalheProvider gerencia o estado de UMA NOTA ESPECÍFICA.
-// São responsabilidades diferentes — providers diferentes.
-final notaDetalheProvider = FutureProvider.family<NotaFiscal, String>(
-  (ref, notaId) async {
-    // Acessa o repositório diretamente via provider
-    // Para carregar uma nota por ID com todos os itens
-    final repository = ref.read(notaFiscalRepositoryProvider);
-    final resultado = await repository.buscarPorId(notaId);
 
-    return switch (resultado) {
-      Sucesso(:final dados) => dados,
-      Falha(:final mensagem) => throw Exception(mensagem),
-    };
-  },
-);
 
 class NotaDetalheScreen extends ConsumerWidget {
   // notaId: UUID da nota a ser exibida, vem do parâmetro de rota
