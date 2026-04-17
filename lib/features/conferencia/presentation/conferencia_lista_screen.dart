@@ -67,10 +67,32 @@ class _ConferenciaListaScreenState
       final virouAtiva =
           previous is! ConferenciaAtiva && next is ConferenciaAtiva;
 
-      if (virouAtiva && !_navegouParaAtiva) {
-        _navegouParaAtiva = true;
-        context.push('/conferencia/${next.conferencia.id}');
-      }
+      ref.listen<ConferenciaState>(conferenciaProvider, (previous, next) {
+  final virouAtiva =
+      previous is! ConferenciaAtiva && next is ConferenciaAtiva;
+
+  if (virouAtiva && !_navegouParaAtiva) {
+    _navegouParaAtiva = true;
+
+    // ==========================================================
+    // NAVEGAÇÃO + RECARGA AO VOLTAR
+    // ==========================================================
+    // Quando a tela ativa fechar (pop),
+    // recarregamos a lista da nota para que ela volte a exibir
+    // o estado correto das conferências.
+    context.push('/conferencia/${next.conferencia.id}').then((_) {
+      if (!mounted) return;
+
+      _navegouParaAtiva = false;
+
+      ref.read(conferenciaProvider.notifier).carregarPorNota(widget.notaId);
+    });
+  }
+
+  if (next is ConferenciaListaCarregada || next is ConferenciaVazio) {
+    _navegouParaAtiva = false;
+  }
+});
 
       // Se voltarmos para estados de lista/vazio, liberamos a navegação futura.
       if (next is ConferenciaListaCarregada || next is ConferenciaVazio) {
