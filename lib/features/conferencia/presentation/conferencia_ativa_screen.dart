@@ -2,54 +2,93 @@
 //
 // CAMADA: presentation
 // RESPONSABILIDADE: tela principal do processo de conferência física.
-// O operador vê os itens da nota e registra as quantidades conferidas.
+//
+// CORREÇÃO DE BUG IMPORTANTE:
+// Antes, a tela só chamava abrirConferencia() quando o estado global
+// era ConferenciaInicial.
+// Isso é frágil porque o mesmo provider estava sendo usado também
+// pela tela de lista.
+// Resultado: ao abrir a tela ativa, o provider podia estar em
+// ConferenciaListaCarregada, e a carga da conferência nunca acontecia.
+//
+// SOLUÇÃO:
+// - transformar em ConsumerStatefulWidget
+// - carregar a conferência em initState()
+// - recarregar se o conferenciaId mudar
+// - remover side effects do build()
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../application/conferencia_notifier.dart';
 import '../domain/conferencia.dart';
 import '../domain/conferencia_item.dart';
 
-class ConferenciaAtivaScreen extends ConsumerWidget {
+class ConferenciaAtivaScreen extends ConsumerStatefulWidget {
   final String conferenciaId;
-  const ConferenciaAtivaScreen({super.key, required this.conferenciaId});
+
+  const ConferenciaAtivaScreen({
+    super.key,
+    required this.conferenciaId,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(conferenciaProvider);
+  ConsumerState<ConferenciaAtivaScreen> createState() =>
+      _ConferenciaAtivaScreenState();
+}
 
-    // Carrega a conferência ao abrir a tela
-    ref.listen(conferenciaProvider, (_, _) {});
+class _ConferenciaAtivaScreenState
+    extends ConsumerState<ConferenciaAtivaScreen> {
+  @override
+  void initState() {
+    super.initState();
 
-    // Inicializa se ainda não foi carregada
-    if (state is ConferenciaInicial) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.read(conferenciaProvider.notifier).abrirConferencia(conferenciaId);
-      });
+    // Carrega a conferência assim que a tela abre.
+    Future.microtask(
+      () => ref
+          .read(conferenciaProvider.notifier)
+          .abrirConferencia(widget.conferenciaId),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant ConferenciaAtivaScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Se a rota mudar para outro id, recarrega corretamente.
+    if (oldWidget.conferenciaId != widget.conferenciaId) {
+      Future.microtask(
+        () => ref
+            .read(conferenciaProvider.notifier)
+            .abrirConferencia(widget.conferenciaId),
+      );
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(conferenciaProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Conferência'),
         actions: [
           if (state is ConferenciaAtiva) ...[
-            // Botão pausar — disponível quando em_andamento
             if (state.conferencia.status == 'em_andamento')
               IconButton(
                 icon: const Icon(Icons.pause),
                 tooltip: 'Pausar conferência',
                 onPressed: () => ref
                     .read(conferenciaProvider.notifier)
-                    .pausar(conferenciaId),
+                    .pausar(widget.conferenciaId),
               ),
-            // Botão retomar — disponível quando pausada
             if (state.conferencia.status == 'pausada')
               IconButton(
                 icon: const Icon(Icons.play_arrow),
                 tooltip: 'Retomar conferência',
                 onPressed: () => ref
                     .read(conferenciaProvider.notifier)
-                    .retomar(conferenciaId),
+                    .retomar(widget.conferenciaId),
               ),
           ],
         ],
@@ -74,7 +113,7 @@ class ConferenciaAtivaScreen extends ConsumerWidget {
                   FilledButton(
                     onPressed: () => ref
                         .read(conferenciaProvider.notifier)
-                        .abrirConferencia(conferenciaId),
+                        .abrirConferencia(widget.conferenciaId),
                     child: const Text('Tentar novamente'),
                   ),
                 ],
@@ -82,9 +121,10 @@ class ConferenciaAtivaScreen extends ConsumerWidget {
             ),
           ),
 
+        // Se o provider estiver num estado de lista por algum motivo,
+        // mostramos loading em vez de crashar a tela.
         _ => const Center(child: CircularProgressIndicator()),
       },
-      // Botão de finalizar — aparece quando há itens verificados
       bottomNavigationBar: state is ConferenciaAtiva &&
               state.conferencia.ativa &&
               state.conferencia.status != 'pausada'
