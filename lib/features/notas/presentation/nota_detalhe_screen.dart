@@ -26,6 +26,7 @@ import '../domain/item_nota.dart';
 import '../domain/nota_fiscal.dart';
 // Adiciona estas duas linhas no início do arquivo, junto com os outros imports:
 import '../../../core/errors/resultado.dart';
+// ignore: unused_import
 import 'package:go_router/go_router.dart';
 
 // ============================================================
