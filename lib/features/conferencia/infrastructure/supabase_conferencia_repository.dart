@@ -120,7 +120,7 @@ class SupabaseConferenciaRepository implements IConferenciaRepository {
           .insert({
             'empresa_id': empresaId,
             'nota_id': notaId,
-            'status': 'em_conferencia',
+            'status': 'em_andamento',
             'operador_id': operadorId,
             'iniciado_em': DateTime.now().toIso8601String(),
             'criado_em': DateTime.now().toIso8601String(),
