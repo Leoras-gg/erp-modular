@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/errors/resultado.dart';
 import '../../../features/auth/application/auth_provider.dart';
 import '../domain/conferencia.dart';
+// ignore: unused_import
 import '../domain/conferencia_item.dart';
 import '../domain/i_conferencia_repository.dart';
 import '../infrastructure/supabase_conferencia_repository.dart';
