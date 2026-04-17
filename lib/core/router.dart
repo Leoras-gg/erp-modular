@@ -28,6 +28,9 @@ import 'widgets/app_shell.dart';
 // Adiciona este import no topo do router.dart:
 import '../features/notas/presentation/notas_screen.dart';
 import '../features/notas/presentation/nota_detalhe_screen.dart';
+// Import no topo:
+import '../features/conferencia/presentation/conferencia_lista_screen.dart';
+import '../features/conferencia/presentation/conferencia_ativa_screen.dart';
 
 // ============================================================
 // NOMES DAS ROTAS — constantes para evitar strings mágicas
@@ -41,6 +44,8 @@ class AppRoutes {
   static const estoque = '/estoque';
   static const configuracoes = '/configuracoes';
   static const notaDetalhe = '/notas/:id';
+  static const conferencia      = '/conferencia';
+static const conferenciaAtiva = '/conferencia/:id';
 
   // Adiciona esta constante em AppRoutes:
   static const notas = '/notas';
@@ -134,6 +139,22 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const NotasScreen(),
           ),
           // Adiciona a rota dentro do ShellRoute, após a rota de /notas:
+          GoRoute(
+  path: '/notas/:notaId/conferencias',
+  name: 'conferencia-lista',
+  builder: (context, state) {
+    final notaId = state.pathParameters['notaId']!;
+    return ConferenciaListaScreen(notaId: notaId);
+  },
+),
+GoRoute(
+  path: '/conferencia/:id',
+  name: 'conferencia-ativa',
+  builder: (context, state) {
+    final id = state.pathParameters['id']!;
+    return ConferenciaAtivaScreen(conferenciaId: id);
+  },
+),
 GoRoute(
   // :id é um parâmetro dinâmico — GoRouter extrai automaticamente
   // e disponibiliza via state.pathParameters['id']

@@ -189,6 +189,17 @@ class _CabecalhoNota extends StatelessWidget {
               label: 'Total de itens',
               valor: '${nota.totalItens} item(ns)',
             ),
+            // Após os _LinhaDado existentes, adiciona:
+const SizedBox(height: 12),
+SizedBox(
+  width: double.infinity,
+  child: FilledButton.icon(
+    onPressed: () =>
+        context.push('/notas/${nota.id}/conferencias'),
+    icon: const Icon(Icons.assignment_outlined),
+    label: const Text('Ver conferências'),
+  ),
+),
           ],
         ),
       ),
