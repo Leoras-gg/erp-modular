@@ -105,6 +105,15 @@ class SupabaseConferenciaRepository implements IConferenciaRepository {
 // Significa começar efetivamente o trabalho operacional.
 // Por isso o status já nasce em_andamento.
 
+// No método iniciar(), no INSERT em conferencias:
+
+// ANTES — causava Bug 3: -> 'status': 'criada',
+
+// DEPOIS — corrigido:
+// O clique em "Iniciar conferência" já representa início imediato.
+// Nasce em 'em_andamento' para que as transições
+// para 'concluida' e 'aguardando_aprovacao' sejam válidas.
+
   @override
   Future<Resultado<Conferencia>> iniciar({
     required String notaId,

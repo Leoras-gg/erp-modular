@@ -17,6 +17,11 @@
 // - recarregar se o conferenciaId mudar
 // - remover side effects do build()
 
+// CORREÇÃO APLICADA:
+// O carregamento inicial foi movido para initState() com
+// Future.microtask(), evitando o padrão problemático de chamar
+// métodos no build() para carregar dados.
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -27,10 +32,7 @@ import '../domain/conferencia_item.dart';
 class ConferenciaAtivaScreen extends ConsumerStatefulWidget {
   final String conferenciaId;
 
-  const ConferenciaAtivaScreen({
-    super.key,
-    required this.conferenciaId,
-  });
+  const ConferenciaAtivaScreen({super.key, required this.conferenciaId});
 
   @override
   ConsumerState<ConferenciaAtivaScreen> createState() =>
@@ -39,30 +41,15 @@ class ConferenciaAtivaScreen extends ConsumerStatefulWidget {
 
 class _ConferenciaAtivaScreenState
     extends ConsumerState<ConferenciaAtivaScreen> {
+
   @override
   void initState() {
     super.initState();
-
-    // Carrega a conferência assim que a tela abre.
-    Future.microtask(
-      () => ref
-          .read(conferenciaProvider.notifier)
-          .abrirConferencia(widget.conferenciaId),
-    );
-  }
-
-  @override
-  void didUpdateWidget(covariant ConferenciaAtivaScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    // Se a rota mudar para outro id, recarrega corretamente.
-    if (oldWidget.conferenciaId != widget.conferenciaId) {
-      Future.microtask(
-        () => ref
-            .read(conferenciaProvider.notifier)
-            .abrirConferencia(widget.conferenciaId),
-      );
-    }
+    // Carrega a conferência uma única vez ao abrir a tela
+    // Future.microtask() garante que roda após o primeiro build()
+    Future.microtask(() => ref
+        .read(conferenciaProvider.notifier)
+        .abrirConferencia(widget.conferenciaId));
   }
 
   @override
@@ -77,7 +64,7 @@ class _ConferenciaAtivaScreenState
             if (state.conferencia.status == 'em_andamento')
               IconButton(
                 icon: const Icon(Icons.pause),
-                tooltip: 'Pausar conferência',
+                tooltip: 'Pausar',
                 onPressed: () => ref
                     .read(conferenciaProvider.notifier)
                     .pausar(widget.conferenciaId),
@@ -85,7 +72,7 @@ class _ConferenciaAtivaScreenState
             if (state.conferencia.status == 'pausada')
               IconButton(
                 icon: const Icon(Icons.play_arrow),
-                tooltip: 'Retomar conferência',
+                tooltip: 'Retomar',
                 onPressed: () => ref
                     .read(conferenciaProvider.notifier)
                     .retomar(widget.conferenciaId),
@@ -121,13 +108,11 @@ class _ConferenciaAtivaScreenState
             ),
           ),
 
-        // Se o provider estiver num estado de lista por algum motivo,
-        // mostramos loading em vez de crashar a tela.
         _ => const Center(child: CircularProgressIndicator()),
       },
       bottomNavigationBar: state is ConferenciaAtiva &&
               state.conferencia.ativa &&
-              state.conferencia.status != 'pausada'
+              state.conferencia.status == 'em_andamento'
           ? _BarraAcoes(conferencia: state.conferencia)
           : null,
     );
@@ -139,30 +124,23 @@ class _ConferenciaAtivaScreenState
 // ============================================================
 class _ConteudoConferencia extends StatelessWidget {
   final Conferencia conferencia;
+
   const _ConteudoConferencia({required this.conferencia});
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Barra de progresso geral
         _BarraProgresso(conferencia: conferencia),
-
-        // Lista de itens
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: conferencia.itens.length,
-            itemBuilder: (context, index) {
-              return _ItemConferenciaCard(
-                item: conferencia.itens[index],
-                conferenciaId: conferencia.id,
-                bloqueado: conferencia.status == 'pausada' ||
-                    conferencia.status == 'aguardando_aprovacao' ||
-                    conferencia.concluida ||
-                    conferencia.cancelada,
-              );
-            },
+            itemBuilder: (context, index) => _ItemConferenciaCard(
+              item: conferencia.itens[index],
+              conferenciaId: conferencia.id,
+              bloqueado: conferencia.status != 'em_andamento',
+            ),
           ),
         ),
       ],
@@ -175,6 +153,7 @@ class _ConteudoConferencia extends StatelessWidget {
 // ============================================================
 class _BarraProgresso extends StatelessWidget {
   final Conferencia conferencia;
+
   const _BarraProgresso({required this.conferencia});
 
   @override
@@ -184,7 +163,6 @@ class _BarraProgresso extends StatelessWidget {
     final conferidos = conferencia.totalItensConferidos;
     final percentual = conferencia.percentualConcluido;
 
-    // Cor do status
     final corStatus = switch (conferencia.status) {
       'pausada'              => Colors.orange,
       'aguardando_aprovacao' => Colors.amber,
@@ -203,30 +181,13 @@ class _BarraProgresso extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '$conferidos de $total itens conferidos',
+                '$conferidos de $total itens',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: corStatus.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: corStatus.withValues(alpha: 0.4)),
-                ),
-                child: Text(
-                  _labelStatus(conferencia.status),
-                  style: TextStyle(
-                    color: corStatus,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
+              _BadgeStatus(status: conferencia.status),
             ],
           ),
           const SizedBox(height: 8),
-          // Barra de progresso linear
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
@@ -242,31 +203,17 @@ class _BarraProgresso extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               'Atenção: existem itens com divergência de quantidade',
-              style: TextStyle(
-                color: Colors.orange.shade700,
-                fontSize: 12,
-              ),
+              style: TextStyle(color: Colors.orange.shade700, fontSize: 12),
             ),
           ],
         ],
       ),
     );
   }
-
-  String _labelStatus(String status) => switch (status) {
-    'criada'               => 'Criada',
-    'em_andamento'         => 'Em andamento',
-    'pausada'              => 'Pausada',
-    'divergente'           => 'Divergente',
-    'aguardando_aprovacao' => 'Aguard. aprovação',
-    'concluida'            => 'Concluída',
-    'cancelada'            => 'Cancelada',
-    _                      => status,
-  };
 }
 
 // ============================================================
-// CARD DE ITEM DA CONFERÊNCIA
+// CARD DE ITEM
 // ============================================================
 class _ItemConferenciaCard extends ConsumerStatefulWidget {
   final ConferenciaItem item;
@@ -291,10 +238,13 @@ class _ItemConferenciaCardState
   @override
   void initState() {
     super.initState();
-    // Preenche com a quantidade já conferida (se houver)
     _controller = TextEditingController(
       text: widget.item.quantidadeConferida > 0
-          ? widget.item.quantidadeConferida.toString()
+          ? widget.item.quantidadeConferida.toStringAsFixed(
+              widget.item.quantidadeConferida ==
+                      widget.item.quantidadeConferida.truncate()
+                  ? 0
+                  : 2)
           : '',
     );
   }
@@ -306,10 +256,10 @@ class _ItemConferenciaCardState
   }
 
   void _confirmar() {
-    final texto = _controller.text.trim();
+    final texto = _controller.text.trim().replaceAll(',', '.');
     if (texto.isEmpty) return;
 
-    final quantidade = double.tryParse(texto.replaceAll(',', '.'));
+    final quantidade = double.tryParse(texto);
     if (quantidade == null || quantidade < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Quantidade inválida')),
@@ -329,7 +279,6 @@ class _ItemConferenciaCardState
     final item = widget.item;
     final colorScheme = Theme.of(context).colorScheme;
 
-    // Cor do card baseada no estado do item
     final corBorda = item.conferido
         ? Colors.green
         : item.divergente
@@ -349,7 +298,6 @@ class _ItemConferenciaCardState
           children: [
             Row(
               children: [
-                // Ícone de status do item
                 Icon(
                   item.conferido
                       ? Icons.check_circle
@@ -364,18 +312,19 @@ class _ItemConferenciaCardState
                 ),
                 const SizedBox(width: 8),
                 Expanded(
+                  // Exibe ID parcial do item enquanto a tela de detalhe
+                  // não resolve o nome completo via nota_item_id
                   child: Text(
                     'Item ${item.notaItemId.substring(0, 8)}...',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-
-            // Quantidade esperada vs conferida
             Row(
               children: [
                 Expanded(
@@ -391,22 +340,20 @@ class _ItemConferenciaCardState
                       if (item.quantidadeConferida > 0)
                         Text(
                           'Conferido: ${item.quantidadeConferida}',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: item.divergente
-                                        ? Colors.orange
-                                        : Colors.green,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                          style: TextStyle(
+                            color: item.divergente
+                                ? Colors.orange
+                                : Colors.green,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
                         ),
                     ],
                   ),
                 ),
-
-                // Campo de entrada da quantidade
                 if (!widget.bloqueado)
                   SizedBox(
-                    width: 100,
+                    width: 110,
                     child: TextField(
                       controller: _controller,
                       keyboardType: const TextInputType.numberWithOptions(
@@ -421,7 +368,7 @@ class _ItemConferenciaCardState
                         suffixIcon: IconButton(
                           icon: const Icon(Icons.check, size: 18),
                           onPressed: _confirmar,
-                          tooltip: 'Confirmar quantidade',
+                          tooltip: 'Confirmar',
                         ),
                       ),
                       onSubmitted: (_) => _confirmar(),
@@ -437,30 +384,31 @@ class _ItemConferenciaCardState
 }
 
 // ============================================================
-// BARRA DE AÇÕES — botões finalizar e cancelar
+// BARRA DE AÇÕES — Finalizar e Cancelar
 // ============================================================
 class _BarraAcoes extends ConsumerWidget {
   final Conferencia conferencia;
+
   const _BarraAcoes({required this.conferencia});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final podeFinalizar = conferencia.todosItensVerificados;
+
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            // Cancelar
             OutlinedButton(
               onPressed: () => _mostrarDialogoCancelar(context, ref),
               style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
               child: const Text('Cancelar'),
             ),
             const SizedBox(width: 12),
-            // Finalizar
             Expanded(
               child: FilledButton(
-                onPressed: conferencia.todosItensVerificados
+                onPressed: podeFinalizar
                     ? () => ref
                         .read(conferenciaProvider.notifier)
                         .tentarFinalizar(conferencia.id)
@@ -512,12 +460,49 @@ class _BarraAcoes extends ConsumerWidget {
                     conferencia.id,
                     controller.text.trim(),
                   );
-              Navigator.pop(context); // volta para a lista
+              Navigator.pop(context);
             },
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Confirmar cancelamento'),
+            child: const Text('Confirmar'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+// BADGE DE STATUS — privado ao arquivo
+// ============================================================
+class _BadgeStatus extends StatelessWidget {
+  final String status;
+
+  const _BadgeStatus({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final (cor, label) = switch (status) {
+      'em_andamento'         => (Colors.blue, 'Em andamento'),
+      'pausada'              => (Colors.orange, 'Pausada'),
+      'aguardando_aprovacao' => (Colors.amber, 'Aguard. aprovação'),
+      'concluida'            => (Colors.green, 'Concluída'),
+      'cancelada'            => (Colors.grey, 'Cancelada'),
+      _                      => (Colors.grey, status),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: cor.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cor.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: cor,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
