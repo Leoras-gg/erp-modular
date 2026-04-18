@@ -46,11 +46,18 @@ class NotaFiscalListaCarregada extends NotaFiscalState {
   NotaFiscalListaCarregada(this.notas);
 }
 
+// ============================================================
+// ESTADO NotaFiscalImportada — agora carrega lista completa
+// ============================================================
+// Mudança: em vez de carregar só a nota nova, agora carrega
+// todas as notas (incluindo a nova) para exibir a lista completa.
+// O feedback de sucesso (snackbar) é disparado via ref.listen
+// na NotasScreen ao detectar este estado.
 class NotaFiscalImportada extends NotaFiscalState {
-  final NotaFiscal nota;
-  // Mensagem de sucesso para exibir na UI
+  final NotaFiscal nota;        // nota recém-importada (para o snackbar)
+  final List<NotaFiscal> notas; // lista completa incluindo a nova
   final String mensagem;
-  NotaFiscalImportada(this.nota, this.mensagem);
+  NotaFiscalImportada(this.nota, this.notas, this.mensagem);
 }
 
 // Estado especial: nota duplicada detectada
@@ -112,39 +119,31 @@ class NotaFiscalNotifier extends Notifier<NotaFiscalState> {
     // ---- Passo 1: seleciona arquivo ----
     final arquivoResultado = await _xmlService.selecionarArquivo();
     if (arquivoResultado is Falha) {
-      // Usuário cancelou — volta ao estado anterior sem erro
       await _carregarNotas();
       return;
     }
-
     final xmlContent = (arquivoResultado as Sucesso<String>).dados;
 
-    // ---- Passo 2: valida estrutura do XML ----
+    // ---- Passo 2: valida XML ----
     final validacao = _xmlService.validarNFe(xmlContent);
     if (validacao is Falha) {
       state = NotaFiscalErro((validacao as Falha).mensagem);
       return;
     }
 
-    // ---- Passo 3: extrai chave para verificar duplicidade ----
+    // ---- Passo 3: extrai chave ----
     final chaveResultado = _xmlService.extrairChaveAcesso(xmlContent);
     if (chaveResultado is Falha) {
       state = NotaFiscalErro((chaveResultado as Falha).mensagem);
       return;
     }
-
     final chaveAcesso = (chaveResultado as Sucesso<String>).dados;
 
     // ---- Passo 4: verifica duplicidade ----
     final duplicidadeResultado =
         await _repository.verificarDuplicidade(chaveAcesso);
-
-    if (duplicidadeResultado is Sucesso) {
-      final jaCadastrada =
-          (duplicidadeResultado as Sucesso<bool>).dados;
-
-      if (jaCadastrada) {
-        // Nota duplicada — informa a UI para decidir o que fazer
+    if (duplicidadeResultado is Sucesso<bool>) {
+      if ((duplicidadeResultado).dados) {
         state = NotaDuplicada(
           chaveAcesso,
           'Esta nota fiscal já foi importada anteriormente.\n'
@@ -155,13 +154,12 @@ class NotaFiscalNotifier extends Notifier<NotaFiscalState> {
       }
     }
 
-    // ---- Passo 5: parseia o XML ----
+    // ---- Passo 5: parseia XML ----
     final parseResultado = _xmlService.processarXml(xmlContent, _empresaId);
     if (parseResultado is Falha) {
       state = NotaFiscalErro((parseResultado as Falha).mensagem);
       return;
     }
-
     final nota = (parseResultado as Sucesso<NotaFiscal>).dados;
 
     // ---- Passo 6: salva no banco ----
@@ -170,18 +168,33 @@ class NotaFiscalNotifier extends Notifier<NotaFiscalState> {
       xmlContent: xmlContent,
     );
 
-    state = switch (importacaoResultado) {
-      Sucesso(:final dados) => NotaFiscalImportada(
-          dados,
-          'Nota fiscal importada com sucesso!\n'
-          '${dados.emitenteNome} — ${dados.itens.length} item(ns)',
-        ),
-      Falha(:final tipo, :final mensagem) => switch (tipo) {
-          TipoFalha.duplicidade => NotaDuplicada(chaveAcesso, mensagem),
-          TipoFalha.rede => NotaFiscalErro('Sem conexão. Verifique sua internet.'),
-          _ => NotaFiscalErro(mensagem),
-        },
-    };
+    if (importacaoResultado is Falha) {
+      final f = importacaoResultado as Falha;
+      state = switch (f.tipo) {
+        TipoFalha.duplicidade => NotaDuplicada(chaveAcesso, f.mensagem),
+        TipoFalha.rede => NotaFiscalErro('Sem conexão. Verifique sua internet.'),
+        _ => NotaFiscalErro(f.mensagem),
+      };
+      return;
+    }
+
+    final notaImportada = (importacaoResultado as Sucesso<NotaFiscal>).dados;
+
+    // ---- Passo 7: busca lista completa atualizada ----
+    // CORREÇÃO BUG 2: em vez de emitir só a nota nova,
+    // buscamos todas as notas para exibir a lista completa
+    // imediatamente, sem que o usuário precise dar refresh manual.
+    final listaResultado = await _repository.buscarTodas();
+    final todasNotas = listaResultado is Sucesso<List<NotaFiscal>>
+        ? (listaResultado).dados
+        : [notaImportada];
+
+    state = NotaFiscalImportada(
+      notaImportada,
+      todasNotas,
+      'Nota fiscal importada com sucesso!\n'
+      '${notaImportada.emitenteNome} — ${notaImportada.itens.length} item(ns)',
+    );
   }
 
   Future<void> recarregar() => _carregarNotas();

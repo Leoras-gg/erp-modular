@@ -33,6 +33,7 @@ class NotasScreen extends ConsumerWidget {
       if (next is NotaDuplicada) {
         _mostrarDialogoDuplicidade(context, ref, next);
       }
+      // Snackbar de sucesso — disparado quando estado é NotaFiscalImportada
       if (next is NotaFiscalImportada) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -56,30 +57,31 @@ class NotasScreen extends ConsumerWidget {
         ],
       ),
       body: switch (state) {
-        NotaFiscalInicial() || NotaFiscalCarregando() =>
-          const Center(child: CircularProgressIndicator()),
+      NotaFiscalInicial() || NotaFiscalCarregando() =>
+        const Center(child: CircularProgressIndicator()),
 
-        NotaFiscalListaCarregada(:final notas) =>
-          _ListaNotas(notas: notas),
+      NotaFiscalListaCarregada(:final notas) =>
+        _ListaNotas(notas: notas),
 
-        NotaFiscalImportada(:final nota) =>
-          _ListaNotas(notas: [nota]),
+      // CORREÇÃO: exibe a lista completa (incluindo a nota nova)
+      // O snackbar é disparado via ref.listen abaixo
+      NotaFiscalImportada(:final notas) =>
+        _ListaNotas(notas: notas),
 
-        NotaFiscalVazio() => _EstadoVazio(
-            onImportar: () =>
-                ref.read(notaFiscalProvider.notifier).importarXml(),
-          ),
+      NotaFiscalVazio() => _EstadoVazio(
+          onImportar: () =>
+              ref.read(notaFiscalProvider.notifier).importarXml(),
+        ),
 
-        NotaFiscalErro(:final mensagem) => _EstadoErro(
-            mensagem: mensagem,
-            onRetentar: () =>
-                ref.read(notaFiscalProvider.notifier).recarregar(),
-          ),
+      NotaFiscalErro(:final mensagem) => _EstadoErro(
+          mensagem: mensagem,
+          onRetentar: () =>
+              ref.read(notaFiscalProvider.notifier).recarregar(),
+        ),
 
-        // NotaDuplicada é tratada via ref.listen acima
-        NotaDuplicada() =>
-          const Center(child: CircularProgressIndicator()),
-      },
+      NotaDuplicada() =>
+        const Center(child: CircularProgressIndicator()),
+    },
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () =>
             ref.read(notaFiscalProvider.notifier).importarXml(),
