@@ -1,47 +1,24 @@
 // lib/features/conferencia/presentation/conferencia_lista_screen.dart
 //
-// CAMADA: presentation
-// RESPONSABILIDADE: listar as conferências de uma nota e permitir
-// iniciar nova conferência ou continuar uma existente.
+// REFATORAÇÃO: agora usa conferenciaListaProvider exclusivamente.
+// Não tem mais acesso ao estado da conferência ativa — isso é
+// responsabilidade da ConferenciaAtivaScreen.
 //
-// ============================================================
-// CORREÇÕES APLICADAS
-// ============================================================
-// BUG 1 — loop / falha na navegação:
-// Antes, a tela tentou usar ref.listen dentro do build e ainda ficou
-// com um listen duplicado/aninhado, o que quebrou o fluxo e gerou
-// comportamento inconsistente.
-//
-// SOLUÇÃO:
-// - usar ref.listenManual no initState()
-// - guardar a subscription em _sub
-// - fechar a subscription no dispose()
-// - controlar a navegação com a flag _navegouParaAtiva
-//
-// BUG 2 — botão "Iniciar conferência" falhando silenciosamente:
-// Antes, o clique usava asyncNota.whenData(...) no build.
-// Se a nota ainda estivesse carregando, nada acontecia.
-//
-// SOLUÇÃO:
-// - criar _iniciarConferencia()
-// - usar ref.read(notaDetalheProvider(widget.notaId)) no momento do clique
-// - tratar loading, error e data com feedback para o usuário
-//
-// CONCEITO APLICADO:
-// build() deve ser o mais puro possível — focado em desenhar a UI.
-// Navegação e side effects ficam no ciclo de vida e em métodos próprios.
+// FLUXO CORRIGIDO:
+// 1. initState → listenManual em conferenciaListaProvider
+// 2. iniciar() retorna o ID da nova conferência
+// 3. navegamos diretamente com esse ID — sem depender de estado
+// 4. ao voltar, recarregamos a lista — provider da lista está limpo
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-
 import '../application/conferencia_notifier.dart';
 import '../domain/conferencia.dart';
 import '../../notas/application/nota_fiscal_notifier.dart';
 
 class ConferenciaListaScreen extends ConsumerStatefulWidget {
   final String notaId;
-
   const ConferenciaListaScreen({super.key, required this.notaId});
 
   @override
@@ -51,103 +28,84 @@ class ConferenciaListaScreen extends ConsumerStatefulWidget {
 
 class _ConferenciaListaScreenState
     extends ConsumerState<ConferenciaListaScreen> {
-  // Protege contra múltiplos pushes da mesma rota.
-  bool _navegouParaAtiva = false;
-
-  // Listener manual do Riverpod.
-  // Como esta tela faz side effect de navegação, listenManual é mais seguro
-  // do que ref.listen no build.
-  ProviderSubscription<ConferenciaState>? _sub;
 
   @override
   void initState() {
     super.initState();
+    // Carrega a lista ao entrar na tela
+    Future.microtask(() => ref
+        .read(conferenciaListaProvider.notifier)
+        .carregar(widget.notaId));
+  }
 
-    _sub = ref.listenManual<ConferenciaState>(conferenciaProvider, (
-      previous,
-      next,
-    ) {
-      final virouAtiva =
-          previous is! ConferenciaAtiva && next is ConferenciaAtiva;
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(conferenciaListaProvider);
+    final asyncNota = ref.watch(notaDetalheProvider(widget.notaId));
 
-      if (virouAtiva && !_navegouParaAtiva) {
-        _navegouParaAtiva = true;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Conferências'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => ref
+                .read(conferenciaListaProvider.notifier)
+                .carregar(widget.notaId),
+          ),
+        ],
+      ),
+      body: switch (state) {
+        ConferenciaListaInicial() || ConferenciaListaCarregando() =>
+          const Center(child: CircularProgressIndicator()),
 
-        context.push('/conferencia/${next.conferencia.id}').then((_) {
-          // Quando a tela ativa fecha, recarregamos a lista da nota.
-          // Isso evita voltar para uma tela presa em estado antigo.
-          if (!mounted) return;
+        ConferenciaListaVazio() => _EstadoVazio(
+            onIniciar: () => _iniciar(asyncNota),
+          ),
 
-          _navegouParaAtiva = false;
+        ConferenciaListaCarregada(:final conferencias) =>
+          _ListaConferencias(
+            conferencias: conferencias,
+            onIniciarNova: () => _iniciar(asyncNota),
+          ),
 
-          ref.read(conferenciaProvider.notifier).carregarPorNota(widget.notaId);
-        });
-      }
-
-      if (next is ConferenciaListaCarregada ||
-          next is ConferenciaVazio ||
-          next is ConferenciaErro) {
-        // Garante reset da flag ao voltar para estados de lista
-        _navegouParaAtiva = false;
-      }
-    });
-
-    // CORREÇÃO: reseta a flag ao entrar na tela
-    _navegouParaAtiva = false;
-
-    // Carrega as conferências da nota ao abrir a tela.
-    Future.microtask(
-      () =>
-          ref.read(conferenciaProvider.notifier).carregarPorNota(widget.notaId),
+        ConferenciaListaErro(:final mensagem) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text(mensagem, textAlign: TextAlign.center),
+                  const SizedBox(height: 24),
+                  FilledButton(
+                    onPressed: () => ref
+                        .read(conferenciaListaProvider.notifier)
+                        .carregar(widget.notaId),
+                    child: const Text('Tentar novamente'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      },
     );
   }
 
-  @override
-  void didUpdateWidget(covariant ConferenciaListaScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
+  // Inicia conferência e navega diretamente com o ID retornado
+  // SEM depender de mudança de estado para disparar a navegação
+  // Isso elimina o loop de push que existia antes
+  Future<void> _iniciar(AsyncValue<dynamic> asyncNota) async {
+    final notaData = ref.read(notaDetalheProvider(widget.notaId));
 
-    // Se a tela passar a apontar para outra nota,
-    // recarrega as conferências da nova nota.
-    if (oldWidget.notaId != widget.notaId) {
-      _navegouParaAtiva = false;
-
-      Future.microtask(
-        () => ref
-            .read(conferenciaProvider.notifier)
-            .carregarPorNota(widget.notaId),
-      );
-    }
-  }
-
-  @override
-  void dispose() {
-    _sub?.close();
-    super.dispose();
-  }
-
-  // ============================================================
-  // _iniciarConferencia
-  // ============================================================
-  // CORREÇÃO BUG 1:
-  // Usa ref.read() para pegar o valor mais recente da nota no momento
-  // do clique — não depende de um asyncNota capturado no build().
-  //
-  // Se a nota ainda estiver carregando, mostramos feedback.
-  // Se houver erro, mostramos SnackBar.
-  // Se estiver pronta, iniciamos a conferência normalmente.
-  void _iniciarConferencia() {
-    final asyncNota = ref.read(notaDetalheProvider(widget.notaId));
-
-    asyncNota.when(
-      loading: () {
+    await notaData.when(
+      loading: () async {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Carregando dados da nota, aguarde...'),
-            duration: Duration(seconds: 2),
-          ),
+          const SnackBar(content: Text('Carregando nota, aguarde...')),
         );
       },
-      error: (e, _) {
+      error: (e, _) async {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Erro ao carregar nota: $e'),
@@ -155,59 +113,26 @@ class _ConferenciaListaScreenState
           ),
         );
       },
-      data: (nota) {
+      data: (nota) async {
         final itensNota = nota.itens
             .map((i) => {'id': i.id, 'quantidade': i.quantidade})
             .toList();
 
-        ref
-            .read(conferenciaProvider.notifier)
+        // iniciar() retorna o ID da nova conferência
+        final conferenciaId = await ref
+            .read(conferenciaListaProvider.notifier)
             .iniciar(widget.notaId, itensNota);
-      },
-    );
-  }
 
-  @override
-  Widget build(BuildContext context) {
-    final state = ref.watch(conferenciaProvider);
-
-    // asyncNota removido do build().
-    // Agora ele é lido sob demanda em _iniciarConferencia().
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Conferências')),
-      body: switch (state) {
-        ConferenciaInicial() || ConferenciaCarregando() => const Center(
-          child: CircularProgressIndicator(),
-        ),
-
-        ConferenciaVazio() => _EstadoVazio(onIniciar: _iniciarConferencia),
-
-        ConferenciaListaCarregada(:final conferencias) => _ListaConferencias(
-          conferencias: conferencias,
-          onIniciarNova: _iniciarConferencia,
-        ),
-
-        // Enquanto a navegação acontece, mostramos loading.
-        ConferenciaAtiva() => const Center(child: CircularProgressIndicator()),
-
-        ConferenciaErro(:final mensagem) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 64, color: Colors.red),
-              const SizedBox(height: 16),
-              Text(mensagem, textAlign: TextAlign.center),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: () => ref
-                    .read(conferenciaProvider.notifier)
-                    .carregarPorNota(widget.notaId),
-                child: const Text('Tentar novamente'),
-              ),
-            ],
-          ),
-        ),
+        if (conferenciaId != null && mounted) {
+          // Navega diretamente com o ID — sem listener de estado
+          await context.push('/conferencia/$conferenciaId');
+          // Ao voltar, recarrega a lista
+          if (mounted) {
+            ref
+                .read(conferenciaListaProvider.notifier)
+                .carregar(widget.notaId);
+          }
+        }
       },
     );
   }
@@ -224,17 +149,25 @@ class _ListaConferencias extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final temAtivaOuEmAndamento =
+        conferencias.any((c) => !c.cancelada && !c.concluida);
+
     return Column(
       children: [
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: conferencias.length,
-            itemBuilder: (context, i) =>
-                _ConferenciaCard(conferencia: conferencias[i]),
+            itemBuilder: (context, i) => _ConferenciaCard(
+              conferencia: conferencias[i],
+              onTap: () async {
+                await context.push('/conferencia/${conferencias[i].id}');
+                // Recarrega ao voltar de qualquer conferência
+              },
+            ),
           ),
         ),
-        if (conferencias.every((c) => c.cancelada || c.concluida))
+        if (!temAtivaOuEmAndamento)
           Padding(
             padding: const EdgeInsets.all(16),
             child: SizedBox(
@@ -253,16 +186,21 @@ class _ListaConferencias extends StatelessWidget {
 
 class _ConferenciaCard extends StatelessWidget {
   final Conferencia conferencia;
+  final VoidCallback onTap;
 
-  const _ConferenciaCard({required this.conferencia});
+  const _ConferenciaCard({
+    required this.conferencia,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final corStatus = switch (conferencia.status) {
-      'concluida' => Colors.green,
-      'cancelada' => Colors.grey,
-      'pausada' => Colors.orange,
-      _ => Theme.of(context).colorScheme.primary,
+      'concluida'            => Colors.green,
+      'cancelada'            => Colors.grey,
+      'pausada'              => Colors.orange,
+      'aguardando_aprovacao' => Colors.amber,
+      _                      => Theme.of(context).colorScheme.primary,
     };
 
     return Card(
@@ -272,8 +210,8 @@ class _ConferenciaCard extends StatelessWidget {
           conferencia.concluida
               ? Icons.check_circle
               : conferencia.cancelada
-              ? Icons.cancel
-              : Icons.assignment_outlined,
+                  ? Icons.cancel
+                  : Icons.assignment_outlined,
           color: corStatus,
         ),
         title: Text(
@@ -281,69 +219,61 @@ class _ConferenciaCard extends StatelessWidget {
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Text(
-          '${conferencia.totalItensConferidos}/${conferencia.itens.length} itens • '
-          '${_formatarData(conferencia.iniciadoEm)}',
+          '${conferencia.totalItensConferidos}/${conferencia.itens.length} itens'
+          ' • ${_formatarData(conferencia.iniciadoEm)}',
         ),
         trailing: conferencia.ativa
             ? const Icon(Icons.arrow_forward_ios, size: 16)
             : null,
-        onTap: conferencia.ativa
-            ? () => context.push('/conferencia/${conferencia.id}')
-            : null,
+        onTap: conferencia.ativa ? onTap : null,
       ),
     );
   }
 
   String _labelStatus(String s) => switch (s) {
-    'criada' => 'Criada',
-    'em_andamento' => 'Em andamento',
-    'pausada' => 'Pausada',
+    'em_andamento'         => 'Em andamento',
+    'pausada'              => 'Pausada',
     'aguardando_aprovacao' => 'Aguardando aprovação',
-    'concluida' => 'Concluída',
-    'cancelada' => 'Cancelada',
-    _ => s,
+    'concluida'            => 'Concluída',
+    'cancelada'            => 'Cancelada',
+    _                      => s,
   };
 
   String _formatarData(DateTime d) =>
-      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+      '${d.day.toString().padLeft(2, '0')}/'
+      '${d.month.toString().padLeft(2, '0')}/${d.year}';
 }
 
 class _EstadoVazio extends StatelessWidget {
   final VoidCallback onIniciar;
-
   const _EstadoVazio({required this.onIniciar});
 
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.assignment_outlined,
-            size: 64,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Nenhuma conferência iniciada',
-            style: TextStyle(fontSize: 18),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Inicie uma conferência para registrar os itens recebidos',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.assignment_outlined, size: 64,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
+            const SizedBox(height: 16),
+            const Text('Nenhuma conferência iniciada',
+                style: TextStyle(fontSize: 18)),
+            const SizedBox(height: 8),
+            Text('Inicie uma conferência para registrar os itens recebidos',
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+                textAlign: TextAlign.center),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: onIniciar,
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Iniciar conferência'),
             ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: onIniciar,
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('Iniciar conferência'),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

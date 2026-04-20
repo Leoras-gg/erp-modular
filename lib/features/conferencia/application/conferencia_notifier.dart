@@ -1,79 +1,98 @@
 // lib/features/conferencia/application/conferencia_notifier.dart
 //
 // CAMADA: application
-// RESPONSABILIDADE: orquestrar o fluxo de conferência — iniciar,
-// pausar, retomar, registrar itens e finalizar.
 //
-// SEALED CLASS DE ESTADO — cobre todos os momentos possíveis da UI:
+// ============================================================
+// REFATORAÇÃO: DOIS PROVIDERS SEPARADOS
+// ============================================================
+// PROBLEMA original: um único conferenciaProvider global era usado
+// tanto pela lista quanto pela tela ativa. Isso causava:
+//   - Pushes duplicados (listener reagia a estado persistido)
+//   - Tela ativa carregando infinitamente ao voltar (estado da lista
+//     sobrescrevia estado da conferência)
+//   - Loop de navegação ao reabrir conferência
 //
-//   ConferenciaInicial      → tela ainda não carregou
-//   ConferenciaCarregando   → operação em andamento
-//   ConferenciaListaCarregada → lista de conferências da nota
-//   ConferenciaAtiva        → conferência em progresso (tela ativa)
-//   ConferenciaVazio        → nota sem conferências
-//   ConferenciaErro         → falha na operação
+// SOLUÇÃO: dois providers com responsabilidades distintas:
+//
+//   conferenciaListaProvider  → gerencia a lista de conferências de uma nota
+//                               usado exclusivamente por ConferenciaListaScreen
+//
+//   conferenciaAtivaProvider  → gerencia UMA conferência específica aberta
+//                               usado exclusivamente por ConferenciaAtivaScreen
+//
+// CONCEITO: Single Responsibility aplicado a providers.
+// Cada provider tem um único motivo para mudar de estado.
+// Mudanças na lista não afetam a tela ativa e vice-versa.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/errors/resultado.dart';
 import '../../../features/auth/application/auth_provider.dart';
 import '../domain/conferencia.dart';
-// ignore: unused_import
 import '../domain/conferencia_item.dart';
 import '../domain/i_conferencia_repository.dart';
 import '../infrastructure/supabase_conferencia_repository.dart';
 
-// ============================================================
-// PROVIDERS
-// ============================================================
+// Provider do repositório — compartilhado pelos dois notifiers
 final conferenciaRepositoryProvider =
     Provider<IConferenciaRepository>((ref) {
   return SupabaseConferenciaRepository();
 });
 
 // ============================================================
-// SEALED CLASS DE ESTADO
+// SEALED CLASSES DE ESTADO — LISTA
 // ============================================================
-sealed class ConferenciaState {}
+sealed class ConferenciaListaState {}
 
-class ConferenciaInicial extends ConferenciaState {}
-class ConferenciaCarregando extends ConferenciaState {}
+class ConferenciaListaInicial   extends ConferenciaListaState {}
+class ConferenciaListaCarregando extends ConferenciaListaState {}
 
-class ConferenciaListaCarregada extends ConferenciaState {
+class ConferenciaListaCarregada extends ConferenciaListaState {
   final List<Conferencia> conferencias;
-  // notaId para contexto — saber a qual nota pertencem as conferências
   final String notaId;
   ConferenciaListaCarregada(this.conferencias, {required this.notaId});
 }
 
-// Estado especial: conferência aberta e em andamento
-// A tela de conferência ativa usa este estado para exibir
-// o progresso em tempo real e permitir ações
-class ConferenciaAtiva extends ConferenciaState {
-  final Conferencia conferencia;
-  ConferenciaAtiva(this.conferencia);
-}
-
-class ConferenciaVazio extends ConferenciaState {
+class ConferenciaListaVazio extends ConferenciaListaState {
   final String notaId;
-  ConferenciaVazio(this.notaId);
+  ConferenciaListaVazio(this.notaId);
 }
 
-class ConferenciaErro extends ConferenciaState {
+class ConferenciaListaErro extends ConferenciaListaState {
   final String mensagem;
-  ConferenciaErro(this.mensagem);
+  ConferenciaListaErro(this.mensagem);
 }
 
 // ============================================================
-// NOTIFIER
+// SEALED CLASSES DE ESTADO — ATIVA
 // ============================================================
-class ConferenciaNotifier extends Notifier<ConferenciaState> {
-  @override
-  ConferenciaState build() => ConferenciaInicial();
+sealed class ConferenciaAtivaState {}
 
-  IConferenciaRepository get _repository =>
+class ConferenciaAtivaInicial   extends ConferenciaAtivaState {}
+class ConferenciaAtivaCarregando extends ConferenciaAtivaState {}
+
+class ConferenciaAtivaCarregada extends ConferenciaAtivaState {
+  final Conferencia conferencia;
+  ConferenciaAtivaCarregada(this.conferencia);
+}
+
+class ConferenciaAtivaErro extends ConferenciaAtivaState {
+  final String mensagem;
+  ConferenciaAtivaErro(this.mensagem);
+}
+
+// ============================================================
+// NOTIFIER DA LISTA
+// ============================================================
+// Responsabilidade: listar e iniciar conferências de uma nota.
+// NÃO gerencia o estado da conferência aberta.
+class ConferenciaListaNotifier
+    extends Notifier<ConferenciaListaState> {
+  @override
+  ConferenciaListaState build() => ConferenciaListaInicial();
+
+  IConferenciaRepository get _repo =>
       ref.read(conferenciaRepositoryProvider);
 
-  // Obtém dados do usuário autenticado
   String get _operadorId {
     final auth = ref.read(authProvider);
     if (auth is AuthAutenticado) return auth.usuario.id;
@@ -86,151 +105,137 @@ class ConferenciaNotifier extends Notifier<ConferenciaState> {
     throw Exception('Usuário não autenticado');
   }
 
-  // ---- Carrega lista de conferências de uma nota ----
-  Future<void> carregarPorNota(String notaId) async {
-    state = ConferenciaCarregando();
-    final resultado = await _repository.buscarPorNota(notaId);
+  Future<void> carregar(String notaId) async {
+    state = ConferenciaListaCarregando();
+    final resultado = await _repo.buscarPorNota(notaId);
     state = switch (resultado) {
       Sucesso(:final dados) => dados.isEmpty
-          ? ConferenciaVazio(notaId)
+          ? ConferenciaListaVazio(notaId)
           : ConferenciaListaCarregada(dados, notaId: notaId),
-      Falha(:final mensagem) => ConferenciaErro(mensagem),
+      Falha(:final mensagem) => ConferenciaListaErro(mensagem),
     };
   }
 
-  // ---- Inicia nova conferência ----
-  // itensNota: lista de maps com 'id' e 'quantidade' dos ItemNota
-  Future<void> iniciar(
+  // Inicia conferência e retorna o ID para navegação
+  // Não muda o estado para ConferenciaAtiva — isso é responsabilidade
+  // do conferenciaAtivaProvider. Aqui apenas criamos no banco.
+  Future<String?> iniciar(
       String notaId, List<Map<String, dynamic>> itensNota) async {
-    state = ConferenciaCarregando();
-    final resultado = await _repository.iniciar(
+    state = ConferenciaListaCarregando();
+    final resultado = await _repo.iniciar(
       notaId: notaId,
       operadorId: _operadorId,
       empresaId: _empresaId,
       itensNota: itensNota,
     );
+    return switch (resultado) {
+      Sucesso(:final dados) => dados.id,
+      Falha(:final mensagem) => () {
+          state = ConferenciaListaErro(mensagem);
+          return null;
+        }(),
+    };
+  }
+}
+
+final conferenciaListaProvider =
+    NotifierProvider<ConferenciaListaNotifier, ConferenciaListaState>(
+        () => ConferenciaListaNotifier());
+
+// ============================================================
+// NOTIFIER DA CONFERÊNCIA ATIVA
+// ============================================================
+// Responsabilidade: carregar e operar uma conferência específica.
+// NÃO sabe nada sobre a lista de conferências.
+class ConferenciaAtivaNotifier
+    extends Notifier<ConferenciaAtivaState> {
+  @override
+  ConferenciaAtivaState build() => ConferenciaAtivaInicial();
+
+  IConferenciaRepository get _repo =>
+      ref.read(conferenciaRepositoryProvider);
+
+  Future<void> carregar(String conferenciaId) async {
+    state = ConferenciaAtivaCarregando();
+    final resultado = await _repo.buscarPorId(conferenciaId);
     state = switch (resultado) {
-      Sucesso(:final dados) => ConferenciaAtiva(dados),
-      Falha(:final mensagem) => ConferenciaErro(mensagem),
+      Sucesso(:final dados) => ConferenciaAtivaCarregada(dados),
+      Falha(:final mensagem) => ConferenciaAtivaErro(mensagem),
     };
   }
 
-  // ---- Abre conferência existente para continuar ----
-  Future<void> abrirConferencia(String conferenciaId) async {
-    state = ConferenciaCarregando();
-    final resultado = await _repository.buscarPorId(conferenciaId);
-    state = switch (resultado) {
-      Sucesso(:final dados) => ConferenciaAtiva(dados),
-      Falha(:final mensagem) => ConferenciaErro(mensagem),
-    };
+  Future<void> pausar(String id) async {
+    final resultado =
+        await _repo.atualizarStatus(id: id, novoStatus: 'pausada');
+    _aplicarResultado(resultado);
   }
 
-  // ---- Pausa a conferência em andamento ----
-  Future<void> pausar(String conferenciaId) async {
-    final resultado = await _repository.atualizarStatus(
-      id: conferenciaId,
-      novoStatus: 'pausada',
-    );
-    if (resultado is Sucesso<Conferencia>) {
-      state = ConferenciaAtiva((resultado).dados);
-    } else if (resultado is Falha) {
-      state = ConferenciaErro((resultado as Falha).mensagem);
-    }
+  Future<void> retomar(String id) async {
+    final resultado =
+        await _repo.atualizarStatus(id: id, novoStatus: 'em_andamento');
+    _aplicarResultado(resultado);
   }
 
-  // ---- Retoma conferência pausada ----
-  Future<void> retomar(String conferenciaId) async {
-    final resultado = await _repository.atualizarStatus(
-      id: conferenciaId,
-      novoStatus: 'em_andamento',
-    );
-    if (resultado is Sucesso<Conferencia>) {
-      state = ConferenciaAtiva((resultado).dados);
-    } else if (resultado is Falha) {
-      state = ConferenciaErro((resultado as Falha).mensagem);
-    }
-  }
-
-  // ---- Registra quantidade conferida de um item ----
   Future<void> registrarItem({
     required String conferenciaId,
     required String conferenciaItemId,
     required double quantidadeConferida,
     String? observacao,
   }) async {
-    final resultado = await _repository.registrarItem(
+    final resultado = await _repo.registrarItem(
       conferenciaItemId: conferenciaItemId,
       quantidadeConferida: quantidadeConferida,
       observacao: observacao,
     );
-
     if (resultado is Falha) {
-      state = ConferenciaErro((resultado as Falha).mensagem);
+      state = ConferenciaAtivaErro((resultado as Falha).mensagem);
       return;
     }
-
-    // Recarrega a conferência completa para atualizar o progresso
-    final confResult = await _repository.buscarPorId(conferenciaId);
-    state = switch (confResult) {
-      Sucesso(:final dados) => ConferenciaAtiva(dados),
-      Falha(:final mensagem) => ConferenciaErro(mensagem),
-    };
+    // Recarrega para atualizar progresso
+    await carregar(conferenciaId);
   }
 
-  // ---- Tenta finalizar — verifica divergências antes ----
   Future<void> tentarFinalizar(String conferenciaId) async {
-    // Busca estado atual para verificar divergências
-    final confResult = await _repository.buscarPorId(conferenciaId);
+    final confResult = await _repo.buscarPorId(conferenciaId);
     if (confResult is Falha) {
-      state = ConferenciaErro((confResult as Falha).mensagem);
+      state = ConferenciaAtivaErro((confResult as Falha).mensagem);
       return;
     }
-
     final conf = (confResult as Sucesso<Conferencia>).dados;
 
-    if (conf.temDivergencia) {
-      // Há divergência — vai para aguardando_aprovacao
-      final resultado = await _repository.atualizarStatus(
-        id: conferenciaId,
-        novoStatus: 'aguardando_aprovacao',
+    if (!conf.todosItensVerificados) {
+      state = ConferenciaAtivaErro(
+        'Ainda existem ${conf.totalItensPendentes} item(ns) não conferidos.',
       );
-      state = switch (resultado) {
-        Sucesso(:final dados) => ConferenciaAtiva(dados),
-        Falha(:final mensagem) => ConferenciaErro(mensagem),
-      };
-    } else if (conf.todosItensVerificados) {
-      // Sem divergência e todos conferidos — finaliza diretamente
-      final resultado = await _repository.atualizarStatus(
-        id: conferenciaId,
-        novoStatus: 'concluida',
-      );
-      state = switch (resultado) {
-        Sucesso(:final dados) => ConferenciaAtiva(dados),
-        Falha(:final mensagem) => ConferenciaErro(mensagem),
-      };
-    } else {
-      state = ConferenciaErro(
-        'Ainda existem itens não conferidos. '
-        'Confira todos os itens antes de finalizar.',
-      );
+      return;
     }
+
+    final novoStatus =
+        conf.temDivergencia ? 'aguardando_aprovacao' : 'concluida';
+    final resultado = await _repo.atualizarStatus(
+      id: conferenciaId,
+      novoStatus: novoStatus,
+    );
+    _aplicarResultado(resultado);
   }
 
-  // ---- Cancela a conferência com motivo ----
-  Future<void> cancelar(String conferenciaId, String motivo) async {
-    state = ConferenciaCarregando();
-    final resultado = await _repository.cancelar(
-      id: conferenciaId,
-      motivo: motivo,
-    );
+  Future<void> cancelar(String id, String motivo) async {
+    final resultado =
+        await _repo.cancelar(id: id, motivo: motivo);
     if (resultado is Falha) {
-      state = ConferenciaErro((resultado).mensagem);
+      state = ConferenciaAtivaErro((resultado as Falha).mensagem);
     }
-    // Após cancelar, volta para a lista da nota
+    // Se sucesso, a tela vai fechar via Navigator.pop()
+  }
+
+  void _aplicarResultado(Resultado<Conferencia> resultado) {
+    state = switch (resultado) {
+      Sucesso(:final dados) => ConferenciaAtivaCarregada(dados),
+      Falha(:final mensagem) => ConferenciaAtivaErro(mensagem),
+    };
   }
 }
 
-final conferenciaProvider =
-    NotifierProvider<ConferenciaNotifier, ConferenciaState>(() {
-  return ConferenciaNotifier();
-});
+final conferenciaAtivaProvider =
+    NotifierProvider<ConferenciaAtivaNotifier, ConferenciaAtivaState>(
+        () => ConferenciaAtivaNotifier());

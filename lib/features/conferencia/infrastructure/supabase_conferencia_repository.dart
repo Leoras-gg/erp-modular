@@ -25,7 +25,7 @@ class SupabaseConferenciaRepository implements IConferenciaRepository {
 
   static const _tabelaConferencias   = 'conferencias';
   static const _tabelaItens          = 'conferencia_itens';
-  static const _tabelaNotas          = 'notas_fiscais';
+  //static const _tabelaNotas          = 'notas_fiscais';
 
   @override
   Future<Resultado<List<Conferencia>>> buscarPorNota(String notaId) async {
@@ -37,18 +37,25 @@ class SupabaseConferenciaRepository implements IConferenciaRepository {
           .isFilter('inativo_em', null)
           .order('criado_em', ascending: false);
 
-      // Para cada conferência, busca seus itens em paralelo
       final conferencias = await Future.wait(
         (data as List).map((map) async {
           final itensData = await _client
               .from(_tabelaItens)
-              .select()
+              .select('*, nota_itens(descricao_produto, ncm, cfop, codigo_barras, unidade_medida, quantidade)')
               .eq('conferencia_id', map['id'] as String)
               .order('criado_em', ascending: true);
 
-          final itens = (itensData as List)
-              .map((i) => ConferenciaItem.fromMap(i))
-              .toList();
+          final itens = (itensData as List).map((iMap) {
+            final notaItem = iMap['nota_itens'] as Map<String, dynamic>?;
+            return ConferenciaItem.fromMap({
+              ...iMap,
+              'descricao_produto': notaItem?['descricao_produto'] as String?,
+              'ncm': notaItem?['ncm'] as String?,
+              'cfop': notaItem?['cfop'] as String?,
+              'codigo_barras': notaItem?['codigo_barras'] as String?,
+              'unidade_medida_nota': notaItem?['unidade_medida'] as String?,
+            });
+          }).toList();
 
           return Conferencia.fromMap(map, itens: itens);
         }),
@@ -72,15 +79,28 @@ class SupabaseConferenciaRepository implements IConferenciaRepository {
           .eq('id', id)
           .single();
 
+      // JOIN com nota_itens para trazer descricao_produto
+      // Conceito: fazemos o join aqui na infraestrutura para que
+      // o domínio receba dados completos sem precisar de outra query
       final itensData = await _client
           .from(_tabelaItens)
-          .select()
+          .select('*, nota_itens(descricao_produto, ncm, cfop, codigo_barras, unidade_medida, quantidade)')
           .eq('conferencia_id', id)
           .order('criado_em', ascending: true);
 
-      final itens = (itensData as List)
-          .map((i) => ConferenciaItem.fromMap(i))
-          .toList();
+      final itens = (itensData as List).map((map) {
+        // Extrai dados do item da nota do join aninhado
+        final notaItem = map['nota_itens'] as Map<String, dynamic>?;
+        return ConferenciaItem.fromMap({
+          ...map,
+          // Inclui os campos extras do join para exibição na UI
+          'descricao_produto': notaItem?['descricao_produto'] as String?,
+          'ncm': notaItem?['ncm'] as String?,
+          'cfop': notaItem?['cfop'] as String?,
+          'codigo_barras': notaItem?['codigo_barras'] as String?,
+          'unidade_medida_nota': notaItem?['unidade_medida'] as String?,
+        });
+      }).toList();
 
       return Sucesso(Conferencia.fromMap(confData, itens: itens));
     } on PostgrestException catch (e) {

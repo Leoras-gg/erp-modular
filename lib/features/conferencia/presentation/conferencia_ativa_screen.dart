@@ -22,6 +22,15 @@
 // Future.microtask(), evitando o padrão problemático de chamar
 // métodos no build() para carregar dados.
 
+// lib/features/conferencia/presentation/conferencia_ativa_screen.dart
+//
+// REFATORAÇÃO: usa conferenciaAtivaProvider exclusivamente.
+// Estado completamente isolado da lista de conferências.
+// Ao voltar, este provider não interfere na lista.
+//
+// MELHORIA: _ItemConferenciaCard agora exibe descricao_produto
+// em vez do ID parcial do notaItemId.
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -31,7 +40,6 @@ import '../domain/conferencia_item.dart';
 
 class ConferenciaAtivaScreen extends ConsumerStatefulWidget {
   final String conferenciaId;
-
   const ConferenciaAtivaScreen({super.key, required this.conferenciaId});
 
   @override
@@ -45,28 +53,28 @@ class _ConferenciaAtivaScreenState
   @override
   void initState() {
     super.initState();
-    // Carrega a conferência uma única vez ao abrir a tela
-    // Future.microtask() garante que roda após o primeiro build()
+    // Usa o provider de conferência ATIVA — isolado da lista
     Future.microtask(() => ref
-        .read(conferenciaProvider.notifier)
-        .abrirConferencia(widget.conferenciaId));
+        .read(conferenciaAtivaProvider.notifier)
+        .carregar(widget.conferenciaId));
   }
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(conferenciaProvider);
+    // Observa somente o provider ativo — sem interferência da lista
+    final state = ref.watch(conferenciaAtivaProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Conferência'),
         actions: [
-          if (state is ConferenciaAtiva) ...[
+          if (state is ConferenciaAtivaCarregada) ...[
             if (state.conferencia.status == 'em_andamento')
               IconButton(
                 icon: const Icon(Icons.pause),
                 tooltip: 'Pausar',
                 onPressed: () => ref
-                    .read(conferenciaProvider.notifier)
+                    .read(conferenciaAtivaProvider.notifier)
                     .pausar(widget.conferenciaId),
               ),
             if (state.conferencia.status == 'pausada')
@@ -74,20 +82,23 @@ class _ConferenciaAtivaScreenState
                 icon: const Icon(Icons.play_arrow),
                 tooltip: 'Retomar',
                 onPressed: () => ref
-                    .read(conferenciaProvider.notifier)
+                    .read(conferenciaAtivaProvider.notifier)
                     .retomar(widget.conferenciaId),
               ),
           ],
         ],
       ),
       body: switch (state) {
-        ConferenciaInicial() || ConferenciaCarregando() =>
+        ConferenciaAtivaInicial() || ConferenciaAtivaCarregando() =>
           const Center(child: CircularProgressIndicator()),
 
-        ConferenciaAtiva(:final conferencia) =>
-          _ConteudoConferencia(conferencia: conferencia),
+        ConferenciaAtivaCarregada(:final conferencia) =>
+          _ConteudoConferencia(
+            conferencia: conferencia,
+            conferenciaId: widget.conferenciaId,
+          ),
 
-        ConferenciaErro(:final mensagem) => Center(
+        ConferenciaAtivaErro(:final mensagem) => Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
@@ -99,18 +110,16 @@ class _ConferenciaAtivaScreenState
                   const SizedBox(height: 24),
                   FilledButton(
                     onPressed: () => ref
-                        .read(conferenciaProvider.notifier)
-                        .abrirConferencia(widget.conferenciaId),
+                        .read(conferenciaAtivaProvider.notifier)
+                        .carregar(widget.conferenciaId),
                     child: const Text('Tentar novamente'),
                   ),
                 ],
               ),
             ),
           ),
-
-        _ => const Center(child: CircularProgressIndicator()),
       },
-      bottomNavigationBar: state is ConferenciaAtiva &&
+      bottomNavigationBar: state is ConferenciaAtivaCarregada &&
               state.conferencia.ativa &&
               state.conferencia.status == 'em_andamento'
           ? _BarraAcoes(conferencia: state.conferencia)
@@ -119,13 +128,14 @@ class _ConferenciaAtivaScreenState
   }
 }
 
-// ============================================================
-// CONTEÚDO DA CONFERÊNCIA
-// ============================================================
 class _ConteudoConferencia extends StatelessWidget {
   final Conferencia conferencia;
+  final String conferenciaId;
 
-  const _ConteudoConferencia({required this.conferencia});
+  const _ConteudoConferencia({
+    required this.conferencia,
+    required this.conferenciaId,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -136,9 +146,9 @@ class _ConteudoConferencia extends StatelessWidget {
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: conferencia.itens.length,
-            itemBuilder: (context, index) => _ItemConferenciaCard(
-              item: conferencia.itens[index],
-              conferenciaId: conferencia.id,
+            itemBuilder: (context, i) => _ItemConferenciaCard(
+              item: conferencia.itens[i],
+              conferenciaId: conferenciaId,
               bloqueado: conferencia.status != 'em_andamento',
             ),
           ),
@@ -148,21 +158,13 @@ class _ConteudoConferencia extends StatelessWidget {
   }
 }
 
-// ============================================================
-// BARRA DE PROGRESSO
-// ============================================================
 class _BarraProgresso extends StatelessWidget {
   final Conferencia conferencia;
-
   const _BarraProgresso({required this.conferencia});
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final total = conferencia.itens.length;
-    final conferidos = conferencia.totalItensConferidos;
-    final percentual = conferencia.percentualConcluido;
-
     final corStatus = switch (conferencia.status) {
       'pausada'              => Colors.orange,
       'aguardando_aprovacao' => Colors.amber,
@@ -181,7 +183,8 @@ class _BarraProgresso extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '$conferidos de $total itens',
+                '${conferencia.totalItensConferidos} de '
+                '${conferencia.itens.length} itens',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
               _BadgeStatus(status: conferencia.status),
@@ -191,7 +194,7 @@ class _BarraProgresso extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
-              value: percentual,
+              value: conferencia.percentualConcluido,
               minHeight: 8,
               backgroundColor: colorScheme.surfaceContainerHighest,
               valueColor: AlwaysStoppedAnimation<Color>(
@@ -202,7 +205,7 @@ class _BarraProgresso extends StatelessWidget {
           if (conferencia.temDivergencia) ...[
             const SizedBox(height: 4),
             Text(
-              'Atenção: existem itens com divergência de quantidade',
+              'Atenção: existem itens com divergência',
               style: TextStyle(color: Colors.orange.shade700, fontSize: 12),
             ),
           ],
@@ -212,9 +215,6 @@ class _BarraProgresso extends StatelessWidget {
   }
 }
 
-// ============================================================
-// CARD DE ITEM
-// ============================================================
 class _ItemConferenciaCard extends ConsumerStatefulWidget {
   final ConferenciaItem item;
   final String conferenciaId;
@@ -240,11 +240,7 @@ class _ItemConferenciaCardState
     super.initState();
     _controller = TextEditingController(
       text: widget.item.quantidadeConferida > 0
-          ? widget.item.quantidadeConferida.toStringAsFixed(
-              widget.item.quantidadeConferida ==
-                      widget.item.quantidadeConferida.truncate()
-                  ? 0
-                  : 2)
+          ? _formatarQtd(widget.item.quantidadeConferida)
           : '',
     );
   }
@@ -255,10 +251,12 @@ class _ItemConferenciaCardState
     super.dispose();
   }
 
+  String _formatarQtd(double q) =>
+      q == q.truncateToDouble() ? q.toInt().toString() : q.toString();
+
   void _confirmar() {
     final texto = _controller.text.trim().replaceAll(',', '.');
     if (texto.isEmpty) return;
-
     final quantidade = double.tryParse(texto);
     if (quantidade == null || quantidade < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -266,8 +264,7 @@ class _ItemConferenciaCardState
       );
       return;
     }
-
-    ref.read(conferenciaProvider.notifier).registrarItem(
+    ref.read(conferenciaAtivaProvider.notifier).registrarItem(
           conferenciaId: widget.conferenciaId,
           conferenciaItemId: widget.item.id,
           quantidadeConferida: quantidade,
@@ -312,10 +309,10 @@ class _ItemConferenciaCardState
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  // Exibe ID parcial do item enquanto a tela de detalhe
-                  // não resolve o nome completo via nota_item_id
                   child: Text(
-                    'Item ${item.notaItemId.substring(0, 8)}...',
+                    // CORREÇÃO: exibe o nome do produto em vez do ID
+                    // descricaoProduto vem do JOIN com nota_itens no repositório
+                    item.descricaoProduto ?? 'Item ${item.notaItemId.substring(0, 8)}...',
                     style: Theme.of(context)
                         .textTheme
                         .titleSmall
@@ -324,6 +321,21 @@ class _ItemConferenciaCardState
                 ),
               ],
             ),
+            // Chips fiscais quando disponíveis
+            if (item.ncm != null || item.cfop != null) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                children: [
+                  if (item.ncm != null)
+                    _Chip(label: 'NCM', valor: item.ncm!),
+                  if (item.cfop != null)
+                    _Chip(label: 'CFOP', valor: item.cfop!),
+                  if (item.codigoBarras != null)
+                    _Chip(label: 'EAN', valor: item.codigoBarras!),
+                ],
+              ),
+            ],
             const SizedBox(height: 8),
             Row(
               children: [
@@ -332,18 +344,17 @@ class _ItemConferenciaCardState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Esperado: ${item.quantidadeEsperada}',
+                        'Esperado: ${_formatarQtd(item.quantidadeEsperada)}'
+                        ' ${item.unidadeMedidaNota ?? ''}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: colorScheme.onSurfaceVariant,
                             ),
                       ),
                       if (item.quantidadeConferida > 0)
                         Text(
-                          'Conferido: ${item.quantidadeConferida}',
+                          'Conferido: ${_formatarQtd(item.quantidadeConferida)}',
                           style: TextStyle(
-                            color: item.divergente
-                                ? Colors.orange
-                                : Colors.green,
+                            color: item.divergente ? Colors.orange : Colors.green,
                             fontWeight: FontWeight.bold,
                             fontSize: 13,
                           ),
@@ -368,7 +379,6 @@ class _ItemConferenciaCardState
                         suffixIcon: IconButton(
                           icon: const Icon(Icons.check, size: 18),
                           onPressed: _confirmar,
-                          tooltip: 'Confirmar',
                         ),
                       ),
                       onSubmitted: (_) => _confirmar(),
@@ -383,34 +393,28 @@ class _ItemConferenciaCardState
   }
 }
 
-// ============================================================
-// BARRA DE AÇÕES — Finalizar e Cancelar
-// ============================================================
 class _BarraAcoes extends ConsumerWidget {
   final Conferencia conferencia;
-
   const _BarraAcoes({required this.conferencia});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final podeFinalizar = conferencia.todosItensVerificados;
-
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
             OutlinedButton(
-              onPressed: () => _mostrarDialogoCancelar(context, ref),
+              onPressed: () => _cancelar(context, ref),
               style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
               child: const Text('Cancelar'),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: FilledButton(
-                onPressed: podeFinalizar
+                onPressed: conferencia.todosItensVerificados
                     ? () => ref
-                        .read(conferenciaProvider.notifier)
+                        .read(conferenciaAtivaProvider.notifier)
                         .tentarFinalizar(conferencia.id)
                     : null,
                 child: Text(
@@ -426,7 +430,7 @@ class _BarraAcoes extends ConsumerWidget {
     );
   }
 
-  void _mostrarDialogoCancelar(BuildContext context, WidgetRef ref) {
+  void _cancelar(BuildContext context, WidgetRef ref) {
     final controller = TextEditingController();
     showDialog(
       context: context,
@@ -456,7 +460,7 @@ class _BarraAcoes extends ConsumerWidget {
             onPressed: () {
               if (controller.text.trim().isEmpty) return;
               Navigator.pop(ctx);
-              ref.read(conferenciaProvider.notifier).cancelar(
+              ref.read(conferenciaAtivaProvider.notifier).cancelar(
                     conferencia.id,
                     controller.text.trim(),
                   );
@@ -471,12 +475,8 @@ class _BarraAcoes extends ConsumerWidget {
   }
 }
 
-// ============================================================
-// BADGE DE STATUS — privado ao arquivo
-// ============================================================
 class _BadgeStatus extends StatelessWidget {
   final String status;
-
   const _BadgeStatus({required this.status});
 
   @override
@@ -496,14 +496,28 @@ class _BadgeStatus extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: cor.withValues(alpha: 0.4)),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: cor,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-        ),
+      child: Text(label,
+          style: TextStyle(
+              color: cor, fontSize: 12, fontWeight: FontWeight.bold)),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  final String label;
+  final String valor;
+  const _Chip({required this.label, required this.valor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(6),
       ),
+      child: Text('$label: $valor',
+          style: Theme.of(context).textTheme.bodySmall),
     );
   }
 }

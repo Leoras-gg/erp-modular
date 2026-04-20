@@ -41,6 +41,17 @@ class ConferenciaItem {
 
   final DateTime criadoEm;
 
+  // Adiciona estes campos à classe ConferenciaItem:
+
+  // Campos extras vindos do JOIN com nota_itens
+  // São opcionais — só existem quando a conferência é carregada com JOIN
+  // Conceito: dados de exibição trazidos junto para evitar N queries
+  final String? descricaoProduto;
+  final String? ncm;
+  final String? cfop;
+  final String? codigoBarras;
+  final String? unidadeMedidaNota;
+
   const ConferenciaItem({
     required this.id,
     required this.conferenciaId,
@@ -50,6 +61,12 @@ class ConferenciaItem {
     this.observacao,
     this.conferidoEm,
     required this.criadoEm,
+    // Campos de exibição — opcionais
+    this.descricaoProduto,
+    this.ncm,
+    this.cfop,
+    this.codigoBarras,
+    this.unidadeMedidaNota,
   });
 
   // ============================================================
@@ -81,8 +98,7 @@ class ConferenciaItem {
       id: map['id'] as String,
       conferenciaId: map['conferencia_id'] as String,
       notaItemId: map['nota_item_id'] as String,
-      quantidadeEsperada:
-          (map['quantidade_esperada'] as num).toDouble(),
+      quantidadeEsperada: (map['quantidade_esperada'] as num).toDouble(),
       quantidadeConferida:
           (map['quantidade_conferida'] as num?)?.toDouble() ?? 0,
       observacao: map['observacao'] as String?,
@@ -90,6 +106,12 @@ class ConferenciaItem {
           ? DateTime.parse(map['conferido_em'] as String)
           : null,
       criadoEm: DateTime.parse(map['criado_em'] as String),
+      // Campos extras do join
+      descricaoProduto: map['descricao_produto'] as String?,
+      ncm: map['ncm'] as String?,
+      cfop: map['cfop'] as String?,
+      codigoBarras: map['codigo_barras'] as String?,
+      unidadeMedidaNota: map['unidade_medida_nota'] as String?,
     );
   }
 
@@ -121,6 +143,7 @@ class ConferenciaItem {
       observacao: observacao ?? this.observacao,
       conferidoEm: conferidoEm ?? this.conferidoEm,
       criadoEm: criadoEm,
+      
     );
   }
 }
