@@ -33,7 +33,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
+import '../application/vinculacao_notifier.dart';
+import 'widgets/item_pendente_card.dart';
 import '../application/conferencia_notifier.dart';
 import '../domain/conferencia.dart';
 import '../domain/conferencia_item.dart';
@@ -120,15 +121,23 @@ class _ConferenciaAtivaScreenState
           ),
       },
       bottomNavigationBar: state is ConferenciaAtivaCarregada &&
-              state.conferencia.ativa &&
-              state.conferencia.status == 'em_andamento'
-          ? _BarraAcoes(conferencia: state.conferencia)
-          : null,
+        state.conferencia.ativa &&
+        state.conferencia.status == 'em_andamento'
+    ? _BarraAcoes(
+        conferencia: state.conferencia,
+        temPendencias: () {
+          final v = ref.read(
+              vinculacaoProvider(widget.conferenciaId));
+          if (v is VinculacaoCarregada) return !v.todosVinculados;
+          return false;
+        }(),
+      )
+    : null,
     );
   }
 }
 
-class _ConteudoConferencia extends StatelessWidget {
+class _ConteudoConferencia extends ConsumerWidget {
   final Conferencia conferencia;
   final String conferenciaId;
 
@@ -138,19 +147,92 @@ class _ConteudoConferencia extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final vinculacaoState =
+        ref.watch(vinculacaoProvider(conferenciaId));
+
     return Column(
       children: [
         _BarraProgresso(conferencia: conferencia),
+
+        // Banner de pendências de vinculação
+        if (vinculacaoState is VinculacaoCarregada)
+          _BannerPendencias(
+            totalPendentes: vinculacaoState.totalPendentes,
+            todosVinculados: vinculacaoState.todosVinculados,
+          ),
+
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: conferencia.itens.length,
-            itemBuilder: (context, i) => _ItemConferenciaCard(
-              item: conferencia.itens[i],
-              conferenciaId: conferenciaId,
-              bloqueado: conferencia.status != 'em_andamento',
-            ),
+          child: CustomScrollView(
+            slivers: [
+              // Seção de itens pendentes de vinculação
+              if (vinculacaoState is VinculacaoCarregada &&
+                  !vinculacaoState.todosVinculados) ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                    child: Text(
+                      'Vincular itens (${vinculacaoState.totalPendentes})',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleSmall
+                          ?.copyWith(
+                              color: Colors.amber.shade800,
+                              fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (ctx, i) => Padding(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 16),
+                      child: ItemPendenteCard(
+                        item: vinculacaoState.itens[i],
+                        conferenciaId: conferenciaId,
+                      ),
+                    ),
+                    childCount: vinculacaoState.itens.length,
+                  ),
+                ),
+                const SliverToBoxAdapter(
+                  child: Divider(
+                      height: 32, indent: 16, endIndent: 16),
+                ),
+              ],
+
+              // Seção de itens a conferir
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  child: Text(
+                    'Itens para conferir (${conferencia.itens.length})',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (ctx, i) => Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16),
+                    child: _ItemConferenciaCard(
+                      item: conferencia.itens[i],
+                      conferenciaId: conferenciaId,
+                      bloqueado:
+                          conferencia.status != 'em_andamento',
+                    ),
+                  ),
+                  childCount: conferencia.itens.length,
+                ),
+              ),
+              const SliverToBoxAdapter(
+                  child: SizedBox(height: 16)),
+            ],
           ),
         ),
       ],
@@ -158,57 +240,57 @@ class _ConteudoConferencia extends StatelessWidget {
   }
 }
 
-class _BarraProgresso extends StatelessWidget {
-  final Conferencia conferencia;
-  const _BarraProgresso({required this.conferencia});
+class _BannerPendencias extends StatelessWidget {
+  final int totalPendentes;
+  final bool todosVinculados;
+
+  const _BannerPendencias({
+    required this.totalPendentes,
+    required this.todosVinculados,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final corStatus = switch (conferencia.status) {
-      'pausada'              => Colors.orange,
-      'aguardando_aprovacao' => Colors.amber,
-      'concluida'            => Colors.green,
-      'cancelada'            => Colors.grey,
-      _                      => colorScheme.primary,
-    };
+    if (todosVinculados) {
+      return Container(
+        width: double.infinity,
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        color: Colors.green.shade50,
+        child: Row(
+          children: [
+            Icon(Icons.check_circle,
+                color: Colors.green.shade700, size: 16),
+            const SizedBox(width: 8),
+            Text('Todos os itens vinculados — pode finalizar',
+                style: TextStyle(
+                    color: Colors.green.shade700,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13)),
+          ],
+        ),
+      );
+    }
 
     return Container(
-      padding: const EdgeInsets.all(16),
-      color: colorScheme.surfaceContainerLow,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      width: double.infinity,
+      padding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: Colors.amber.shade50,
+      child: Row(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '${conferencia.totalItensConferidos} de '
-                '${conferencia.itens.length} itens',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              _BadgeStatus(status: conferencia.status),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: conferencia.percentualConcluido,
-              minHeight: 8,
-              backgroundColor: colorScheme.surfaceContainerHighest,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                conferencia.temDivergencia ? Colors.orange : corStatus,
-              ),
+          Icon(Icons.warning_amber,
+              color: Colors.amber.shade800, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '$totalPendentes item(ns) precisam ser vinculados antes de finalizar.',
+              style: TextStyle(
+                  color: Colors.amber.shade800,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13),
             ),
           ),
-          if (conferencia.temDivergencia) ...[
-            const SizedBox(height: 4),
-            Text(
-              'Atenção: existem itens com divergência',
-              style: TextStyle(color: Colors.orange.shade700, fontSize: 12),
-            ),
-          ],
         ],
       ),
     );
@@ -395,32 +477,44 @@ class _ItemConferenciaCardState
 
 class _BarraAcoes extends ConsumerWidget {
   final Conferencia conferencia;
-  const _BarraAcoes({required this.conferencia});
+  final bool temPendencias;
+
+  const _BarraAcoes({
+    required this.conferencia,
+    required this.temPendencias,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final podeFinalizar =
+        !temPendencias && conferencia.todosItensVerificados;
+
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(
+            horizontal: 16, vertical: 12),
         child: Row(
           children: [
             OutlinedButton(
               onPressed: () => _cancelar(context, ref),
-              style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+              style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red),
               child: const Text('Cancelar'),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: FilledButton(
-                onPressed: conferencia.todosItensVerificados
+                onPressed: podeFinalizar
                     ? () => ref
                         .read(conferenciaAtivaProvider.notifier)
                         .tentarFinalizar(conferencia.id)
                     : null,
                 child: Text(
-                  conferencia.temDivergencia
-                      ? 'Enviar para aprovação'
-                      : 'Finalizar conferência',
+                  temPendencias
+                      ? 'Vincule os itens primeiro'
+                      : conferencia.temDivergencia
+                          ? 'Enviar para aprovação'
+                          : 'Finalizar conferência',
                 ),
               ),
             ),
