@@ -10,6 +10,7 @@
 // - Propriedades derivadas do domínio: estoqueBaixo vem do Produto
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../domain/produto.dart';
 
 class ProdutoCard extends StatelessWidget {
@@ -101,6 +102,11 @@ class ProdutoCard extends StatelessWidget {
                   icon: const Icon(Icons.more_vert),
                   onSelected: (value) {
                     if (value == 'inativar') onInativar?.call();
+                    case 'historico':
+  context.push(
+    '/estoque/produtos/${produto.id}/movimentacoes'
+    '?nome=${Uri.encodeComponent(produto.nome)}',
+  );
                   },
                   itemBuilder: (context) => [
                     const PopupMenuItem(
@@ -113,6 +119,16 @@ class ProdutoCard extends StatelessWidget {
                         ],
                       ),
                     ),
+                    PopupMenuItem(
+  value: 'historico',
+  child: const Row(
+    children: [
+      Icon(Icons.history),
+      SizedBox(width: 8),
+      Text('Histórico de movimentações'),
+    ],
+  ),
+),
                   ],
                 ),
             ],

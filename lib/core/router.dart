@@ -24,6 +24,7 @@ import '../features/dashboard/presentation/dashboard_screen.dart';
 import '../features/estoque/presentation/estoque_screen.dart';
 import '../features/configuracoes/presentation/configuracoes_screen.dart';
 import 'widgets/app_shell.dart';
+import '../features/estoque/presentation/movimentacoes_screen.dart';
 
 // Adiciona este import no topo do router.dart:
 import '../features/notas/presentation/notas_screen.dart';
@@ -46,6 +47,7 @@ class AppRoutes {
   static const notaDetalhe = '/notas/:id';
   static const conferencia      = '/conferencia';
 static const conferenciaAtiva = '/conferencia/:id';
+static const movimentacoes = '/estoque/produtos/:id/movimentacoes';
 
   // Adiciona esta constante em AppRoutes:
   static const notas = '/notas';
@@ -166,6 +168,19 @@ GoRoute(
     // o GoRouter garante isso pois a rota exige o parâmetro
     final notaId = state.pathParameters['id']!;
     return NotaDetalheScreen(notaId: notaId);
+  },
+),
+GoRoute(
+  path: '/estoque/produtos/:id/movimentacoes',
+  name: 'movimentacoes',
+  builder: (context, state) {
+    final produtoId = state.pathParameters['id']!;
+    final nomeProduto =
+        state.uri.queryParameters['nome'] ?? 'Produto';
+    return MovimentacoesScreen(
+      produtoId: produtoId,
+      nomeProduto: nomeProduto,
+    );
   },
 ),
         ],
