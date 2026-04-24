@@ -24,6 +24,8 @@
 // Cada provider tem um único motivo para mudar de estado.
 // Mudanças na lista não afetam a tela ativa e vice-versa.
 
+import '../../estoque/domain/i_movimentacao_repository.dart';
+import '../../estoque/infrastructure/supabase_movimentacao_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/errors/resultado.dart';
 import '../../../features/auth/application/auth_provider.dart';
@@ -35,6 +37,11 @@ import '../infrastructure/supabase_conferencia_repository.dart';
 final conferenciaRepositoryProvider =
     Provider<IConferenciaRepository>((ref) {
   return SupabaseConferenciaRepository();
+});
+
+final movimentacaoRepositoryProvider =
+    Provider<IMovimentacaoRepository>((ref) {
+  return SupabaseMovimentacaoRepository();
 });
 
 // ============================================================
@@ -154,6 +161,18 @@ class ConferenciaAtivaNotifier
   IConferenciaRepository get _repo =>
       ref.read(conferenciaRepositoryProvider);
 
+      String get _operadorId {
+    final auth = ref.read(authProvider);
+    if (auth is AuthAutenticado) return auth.usuario.id;
+    throw Exception('Usuário não autenticado');
+  }
+
+  String get _empresaId {
+    final auth = ref.read(authProvider);
+    if (auth is AuthAutenticado) return auth.usuario.empresaId;
+    throw Exception('Usuário não autenticado');
+  }
+
   Future<void> carregar(String conferenciaId) async {
     state = ConferenciaAtivaCarregando();
     final resultado = await _repo.buscarPorId(conferenciaId);
@@ -209,15 +228,44 @@ class ConferenciaAtivaNotifier
       return;
     }
 
-    final novoStatus =
-        conf.temDivergencia ? 'aguardando_aprovacao' : 'concluida';
-    final resultado = await _repo.atualizarStatus(
-      id: conferenciaId,
-      novoStatus: novoStatus,
-    );
-    _aplicarResultado(resultado);
-  }
+    if (conf.temDivergencia) {
+      // Com divergência → supervisor aprova
+      final resultado = await _repo.atualizarStatus(
+        id: conferenciaId,
+        novoStatus: 'aguardando_aprovacao',
+      );
+      _aplicarResultado(resultado);
+    } else {
+      // Sem divergência → registra movimentações e finaliza
+      state = ConferenciaAtivaCarregando();
 
+      final itensConferencia = conf.itens
+          .where((i) => i.quantidadeConferida > 0)
+          .map((i) => {
+                'nota_item_id': i.notaItemId,
+                'quantidade_conferida': i.quantidadeConferida,
+                'lote': i.lote,
+              })
+          .toList();
+
+      final movResult = await ref
+          .read(movimentacaoRepositoryProvider)
+          .registrarEntradaConferencia(
+            conferenciaId: conferenciaId,
+            notaId: conf.notaId,
+            operadorId: _operadorId,
+            empresaId: _empresaId,
+            itensConferencia: itensConferencia,
+          );
+
+      if (movResult is Falha) {
+        state = ConferenciaAtivaErro((movResult as Falha).mensagem);
+        return;
+      }
+
+      await carregar(conferenciaId);
+    }
+  }
   Future<void> cancelar(String id, String motivo) async {
     final resultado =
         await _repo.cancelar(id: id, motivo: motivo);
