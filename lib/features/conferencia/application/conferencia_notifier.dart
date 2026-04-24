@@ -28,7 +28,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/errors/resultado.dart';
 import '../../../features/auth/application/auth_provider.dart';
 import '../domain/conferencia.dart';
-import '../domain/conferencia_item.dart';
 import '../domain/i_conferencia_repository.dart';
 import '../infrastructure/supabase_conferencia_repository.dart';
 
@@ -223,7 +222,7 @@ class ConferenciaAtivaNotifier
     final resultado =
         await _repo.cancelar(id: id, motivo: motivo);
     if (resultado is Falha) {
-      state = ConferenciaAtivaErro((resultado as Falha).mensagem);
+      state = ConferenciaAtivaErro((resultado).mensagem);
     }
     // Se sucesso, a tela vai fechar via Navigator.pop()
   }
