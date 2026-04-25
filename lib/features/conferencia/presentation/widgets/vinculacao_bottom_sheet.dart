@@ -185,7 +185,7 @@ class _VinculacaoBottomSheetState
               AsyncError(:final error) =>
                 Center(child: Text('Erro: $error')),
 
-              AsyncData(:final value) when _query.trim().length < 2 =>
+              AsyncData() when _query.trim().length < 2 =>
                 Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,

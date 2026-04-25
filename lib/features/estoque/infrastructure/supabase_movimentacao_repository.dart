@@ -18,7 +18,7 @@ class SupabaseMovimentacaoRepository implements IMovimentacaoRepository {
   static const _tabela             = 'movimentacoes';
   static const _tabelaProdutos     = 'produtos';
   static const _tabelaNotaItens    = 'nota_itens';
-  static const _tabelaConferencias = 'conferencias';
+  //static const _tabelaConferencias = 'conferencias';
   static const _tabelaNotas        = 'notas_fiscais';
   static const _tabelaBarcodes     = 'produto_barcodes';
 

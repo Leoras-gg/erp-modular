@@ -183,7 +183,7 @@ class ItemPendenteCard extends ConsumerWidget {
     if (resultado is Falha && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text((resultado as Falha).mensagem),
+          content: Text((resultado).mensagem),
           backgroundColor: Colors.red,
         ),
       );
@@ -221,7 +221,7 @@ class ItemPendenteCard extends ConsumerWidget {
     if (resultado is Falha && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text((resultado as Falha).mensagem),
+          content: Text((resultado).mensagem),
           backgroundColor: Colors.red,
         ),
       );
