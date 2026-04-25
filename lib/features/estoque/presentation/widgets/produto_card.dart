@@ -100,14 +100,22 @@ class ProdutoCard extends StatelessWidget {
               if (onInativar != null)
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert),
-                  onSelected: (value) {
-                    if (value == 'inativar') onInativar?.call();
-                    case 'historico':
-  context.push(
-    '/estoque/produtos/${produto.id}/movimentacoes'
-    '?nome=${Uri.encodeComponent(produto.nome)}',
-  );
-                  },
+onSelected: (value) {
+  switch (value) {
+    case 'historico':
+      context.push(
+        '/estoque/produtos/${produto.id}/movimentacoes'
+        '?nome=${Uri.encodeComponent(produto.nome)}',
+      );
+
+      case 'inativar':
+        onInativar?.call();
+        
+      break;
+
+    // mantenha aqui os outros cases que já existiam
+  }
+},
                   itemBuilder: (context) => [
                     const PopupMenuItem(
                       value: 'inativar',
@@ -119,9 +127,9 @@ class ProdutoCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                    PopupMenuItem(
+                   const  PopupMenuItem(
   value: 'historico',
-  child: const Row(
+  child: Row(
     children: [
       Icon(Icons.history),
       SizedBox(width: 8),

@@ -9,9 +9,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/item_pendente_vinculacao.dart';
 
-final _queryProvider =
-    StateProvider.autoDispose<String>((ref) => '');
-
 final _resultadosProvider =
     FutureProvider.autoDispose.family<List<ProdutoVinculado>, String>(
   (ref, query) async {
@@ -72,6 +69,7 @@ class VinculacaoBottomSheet extends ConsumerStatefulWidget {
 class _VinculacaoBottomSheetState
     extends ConsumerState<VinculacaoBottomSheet> {
   final _controller = TextEditingController();
+  String _query = '';
 
   @override
   void dispose() {
@@ -81,8 +79,7 @@ class _VinculacaoBottomSheetState
 
   @override
   Widget build(BuildContext context) {
-    final query = ref.watch(_queryProvider);
-    final asyncResultados = ref.watch(_resultadosProvider(query));
+   final asyncResultados = ref.watch(_resultadosProvider(_query));
     final colorScheme = Theme.of(context).colorScheme;
 
     return DraggableScrollableSheet(
@@ -157,18 +154,22 @@ class _VinculacaoBottomSheetState
                     hintText: 'Nome, código interno ou código de barras...',
                     prefixIcon: const Icon(Icons.search),
                     border: const OutlineInputBorder(),
-                    suffixIcon: query.isNotEmpty
+                    suffixIcon: _query.isNotEmpty
                         ? IconButton(
                             icon: const Icon(Icons.clear),
                             onPressed: () {
                               _controller.clear();
-                              ref.read(_queryProvider.notifier).state = '';
+                             setState(() {
+  _query = '';
+});
                             },
                           )
                         : null,
                   ),
                   onChanged: (v) =>
-                      ref.read(_queryProvider.notifier).state = v,
+                      setState(() {
+                        _query = v;
+                      }),
                 ),
                 const SizedBox(height: 8),
               ],
@@ -184,7 +185,7 @@ class _VinculacaoBottomSheetState
               AsyncError(:final error) =>
                 Center(child: Text('Erro: $error')),
 
-              AsyncData(:final value) when query.trim().length < 2 =>
+              AsyncData(:final value) when _query.trim().length < 2 =>
                 Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,

@@ -146,6 +146,8 @@ class _ConteudoConferencia extends ConsumerWidget {
     required this.conferenciaId,
   });
 
+  
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final vinculacaoState =
@@ -236,6 +238,37 @@ class _ConteudoConferencia extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _BarraProgresso extends StatelessWidget {
+  final Conferencia conferencia;
+
+  const _BarraProgresso({
+    required this.conferencia,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final total = conferencia.itens.length;
+    final pendentes = conferencia.totalItensPendentes;
+    final conferidos = total - pendentes;
+    final progresso = total == 0 ? 0.0 : conferidos / total;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LinearProgressIndicator(value: progresso),
+          const SizedBox(height: 6),
+          Text(
+            '$conferidos de $total item(ns) conferidos',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
     );
   }
 }

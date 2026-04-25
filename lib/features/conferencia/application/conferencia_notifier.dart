@@ -244,7 +244,7 @@ class ConferenciaAtivaNotifier
           .map((i) => {
                 'nota_item_id': i.notaItemId,
                 'quantidade_conferida': i.quantidadeConferida,
-                'lote': i.lote,
+                'lote': null,
               })
           .toList();
 

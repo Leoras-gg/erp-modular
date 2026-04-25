@@ -6,6 +6,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/errors/resultado.dart';
 import '../../application/vinculacao_notifier.dart';
 import '../../domain/item_pendente_vinculacao.dart';
 import 'vinculacao_bottom_sheet.dart';

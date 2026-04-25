@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/movimentacao.dart';
 import '../infrastructure/supabase_movimentacao_repository.dart';
+import '../../../core/errors/resultado.dart';
 
 final movimentacoesProdutoProvider =
     FutureProvider.family<List<Movimentacao>, String>(
