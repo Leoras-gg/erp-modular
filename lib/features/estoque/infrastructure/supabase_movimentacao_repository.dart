@@ -15,12 +15,13 @@ import '../domain/movimentacao.dart';
 class SupabaseMovimentacaoRepository implements IMovimentacaoRepository {
   final _client = Supabase.instance.client;
 
+ // Nomes das tabelas — usados em todas as queries desta classe
   static const _tabela             = 'movimentacoes';
   static const _tabelaProdutos     = 'produtos';
   static const _tabelaNotaItens    = 'nota_itens';
-  static const _tabelaConferencias = 'conferencias';
-  static const _tabelaNotas        = 'notas_fiscais';
+  static const _tabelaNotas        = 'notas_fiscais';    // ← era _tabelaNotasFiscais
   static const _tabelaBarcodes     = 'produto_barcodes';
+  // REMOVIDO: _tabelaConferencias — não usado neste repositório
 
   @override
   Future<Resultado<List<Movimentacao>>> buscarPorProduto(
@@ -237,7 +238,7 @@ class SupabaseMovimentacaoRepository implements IMovimentacaoRepository {
 
       // Atualiza status da nota para 'conferida'
       await _client
-          .from(_tabelaNotasFiscais)
+          .from(_tabelaNotas)
           .update({'status': 'conferida'})
           .eq('id', notaId);
 

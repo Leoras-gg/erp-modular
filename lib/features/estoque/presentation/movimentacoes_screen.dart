@@ -142,15 +142,14 @@ class _MovimentacaoCard extends StatelessWidget {
                   child: Icon(icone, color: cor),
                 ),
                 const SizedBox(width: 12),
-                // Nome e código de barras do produto
+                // Nome e código de barras
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         mov.nomeProduto ?? 'Produto',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -199,10 +198,50 @@ class _MovimentacaoCard extends StatelessWidget {
                   _Chip('Lote: ${mov.lote}', Colors.teal),
               ],
             ),
-            const SizedBox(height: 4),
-            Text(_formatarData(mov.criadoEm),
-                style: TextStyle(
-                    color: colorScheme.onSurfaceVariant, fontSize: 11)),
+            const SizedBox(height: 6),
+
+            // Linha de rastreabilidade — ID e nota vinculada
+            Row(
+              children: [
+                // ID da movimentação
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '#${mov.id.substring(0, 8).toUpperCase()}',
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (mov.notaId != null) ...[
+                  const SizedBox(width: 8),
+                  Icon(Icons.receipt_outlined,
+                      size: 12, color: colorScheme.onSurfaceVariant),
+                  const SizedBox(width: 3),
+                  Text(
+                    'NF vinculada',
+                    style: TextStyle(
+                        fontSize: 10,
+                        color: colorScheme.onSurfaceVariant),
+                  ),
+                ],
+                const Spacer(),
+                // Data e hora
+                Text(
+                  _formatarData(mov.criadoEm),
+                  style: TextStyle(
+                      color: colorScheme.onSurfaceVariant, fontSize: 11),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -212,9 +251,8 @@ class _MovimentacaoCard extends StatelessWidget {
   String _qtd(double q) =>
       q == q.truncateToDouble() ? q.toInt().toString() : q.toStringAsFixed(3);
 
-  String _labelTipo(String t) => switch (t) {
-    'entrada' => 'Entrada', 'saida' => 'Saída', _ => 'Ajuste'
-  };
+  String _labelTipo(String t) =>
+      switch (t) { 'entrada' => 'Entrada', 'saida' => 'Saída', _ => 'Ajuste' };
 
   String _labelOrigem(String o) => switch (o) {
     'conferencia' => 'Conferência NF-e',

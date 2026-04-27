@@ -195,12 +195,14 @@ class _ConferenciaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     final corStatus = switch (conferencia.status) {
       'concluida'            => Colors.green,
       'cancelada'            => Colors.grey,
       'pausada'              => Colors.orange,
       'aguardando_aprovacao' => Colors.amber,
-      _                      => Theme.of(context).colorScheme.primary,
+      _                      => colorScheme.primary,
     };
 
     return Card(
@@ -214,9 +216,33 @@ class _ConferenciaCard extends StatelessWidget {
                   : Icons.assignment_outlined,
           color: corStatus,
         ),
-        title: Text(
-          _labelStatus(conferencia.status),
-          style: const TextStyle(fontWeight: FontWeight.bold),
+        // Título com status + ID abreviado
+        title: Row(
+          children: [
+            Text(
+              _labelStatus(conferencia.status),
+              style: TextStyle(
+                  fontWeight: FontWeight.bold, color: corStatus),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '#${conferencia.id.substring(0, 8).toUpperCase()}',
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ),
         subtitle: Text(
           '${conferencia.totalItensConferidos}/${conferencia.itens.length} itens'
