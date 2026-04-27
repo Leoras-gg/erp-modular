@@ -65,6 +65,45 @@ class _ConferenciaAtivaScreenState
     // Observa somente o provider ativo — sem interferência da lista
     final state = ref.watch(conferenciaAtivaProvider);
 
+    // ============================================================
+    // LISTENER: navega de volta automaticamente ao concluir
+    // ============================================================
+    // Quando a conferência é finalizada com sucesso, o estado muda
+    // para ConferenciaAtivaCarregada com status='concluida'.
+    // Neste momento: mostramos SnackBar de sucesso e fazemos pop().
+    // Isso evita que a tela fique "presa" na conferência concluída
+    // e resolve o loop de carregamento ao voltar para a lista.
+    ref.listen<ConferenciaAtivaState>(conferenciaAtivaProvider, (prev, next) {
+      if (next is ConferenciaAtivaCarregada &&
+          next.conferencia.status == 'concluida' &&
+          prev is! ConferenciaAtivaCarregada) {
+        // Aguarda o frame atual terminar antes de navegar
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Conferência concluída com sucesso!'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+          // Pop automático — volta para a lista de conferências
+          Navigator.of(context).pop();
+        });
+      }
+
+      // Também navega de volta se for cancelada durante o uso
+      if (next is ConferenciaAtivaCarregada &&
+          next.conferencia.status == 'cancelada' &&
+          (prev is ConferenciaAtivaCarregada &&
+              prev.conferencia.status != 'cancelada')) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          Navigator.of(context).pop();
+        });
+      }
+    });
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Conferência'),

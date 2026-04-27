@@ -286,13 +286,24 @@ class ConferenciaAtivaNotifier
     // Passo 3: recarrega a conferência ativa com status atualizado
     await carregar(conferenciaId);
 
-    // Passo 4: invalida providers dependentes para propagar o evento
-    // conferenciaListaProvider → lista de conferências da nota
-    // notaFiscalProvider → badge de status da nota (Importada → Conferida)
-    // Conceito: ref.invalidate() descarta o cache e força recarregamento
-    // no próximo acesso — não dispara imediatamente
-    ref.invalidate(conferenciaListaProvider);
-    ref.invalidate(notaFiscalProvider);
+    // Passo 4: propaga atualização para a lista de notas fiscais
+    //
+    // IMPORTANTE — por que NÃO usar ref.invalidate(conferenciaListaProvider):
+    // A ConferenciaListaScreen já tem um .then() no context.push() que chama
+    // carregar() ao voltar. Se invalidarmos o provider aqui, o notifier é
+    // recriado enquanto a tela ainda está tentando usá-lo via .then(),
+    // causando loop de carregamento infinito.
+    //
+    // Por que usar .recarregar() em vez de ref.invalidate(notaFiscalProvider):
+    // notaFiscalProvider é NotifierProvider — invalidate() recria o notifier
+    // inteiro, que pode ter side effects. .recarregar() chama o método correto
+    // no notifier existente, forçando busca do banco com o status atualizado.
+    try {
+      ref.read(notaFiscalProvider.notifier).recarregar();
+    } catch (_) {
+      // notaFiscalProvider pode não estar ativo se o usuário não passou
+      // pela tela de notas — ignorar silenciosamente
+    }
   }
 
   Future<void> cancelar(String id, String motivo) async {
