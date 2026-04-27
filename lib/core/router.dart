@@ -32,6 +32,7 @@ import '../features/notas/presentation/nota_detalhe_screen.dart';
 // Import no topo:
 import '../features/conferencia/presentation/conferencia_lista_screen.dart';
 import '../features/conferencia/presentation/conferencia_ativa_screen.dart';
+import '../features/conferencia/presentation/conferencias_gerais_screen.dart';
 
 // ============================================================
 // NOMES DAS ROTAS — constantes para evitar strings mágicas
@@ -182,6 +183,13 @@ GoRoute(
       nomeProduto: nomeProduto,
     );
   },
+),
+
+GoRoute(
+  path: '/conferencias',
+  name: 'conferencias',
+  builder: (context, state) =>
+      const ConferenciasGeraisScreen(),
 ),
         ],
       ),
