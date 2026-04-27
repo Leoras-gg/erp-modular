@@ -455,15 +455,17 @@ class _StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (cor, label) = switch (status) {
-      'importada'        => (Colors.blue, 'Importada'),
-      'em_conferencia'   => (Colors.orange, 'Em conferência'),
-      'conferida'        => (Colors.teal, 'Conferida'),
-      'divergente'       => (Colors.red, 'Divergente'),
-      'finalizada'       => (Colors.green, 'Finalizada'),
-      'cancelada'        => (Colors.grey, 'Cancelada'),
-      _                  => (Colors.grey, status),
-    };
+    // Em nota_detalhe_screen.dart, mesmo switch:
+final (cor, label) = switch (status) {
+  'importada'      => (Colors.blue,   'Importada'),
+  'em_conferencia' => (Colors.orange, 'Em conferência'),
+  'conferida'      => (Colors.green,  'Conferida'),
+  'divergente'     => (Colors.red,    'Divergente'),
+  'finalizada'     => (Colors.green,  'Finalizada'),
+  'cancelada'      => (Colors.grey,   'Cancelada'),
+  _                => (Colors.grey,   status),
+};
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(

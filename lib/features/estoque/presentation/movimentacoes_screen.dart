@@ -24,7 +24,9 @@ final movimentacoesProdutoProvider =
   },
 );
 
-class MovimentacoesScreen extends ConsumerWidget {
+// Substitui a declaração da classe e adiciona State:
+
+class MovimentacoesScreen extends ConsumerStatefulWidget {
   final String produtoId;
   final String nomeProduto;
 
@@ -35,54 +37,71 @@ class MovimentacoesScreen extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final asyncMovs = ref.watch(movimentacoesProdutoProvider(produtoId));
+  ConsumerState<MovimentacoesScreen> createState() =>
+      _MovimentacoesScreenState();
+}
+
+class _MovimentacoesScreenState
+    extends ConsumerState<MovimentacoesScreen> {
+
+  @override
+  void initState() {
+    super.initState();
+    // Invalida o provider ao entrar na tela — sempre recarrega dados frescos.
+    // Sem isso, o FutureProvider usa cache da última vez que foi carregado,
+    // que pode estar vazio (antes de qualquer movimentação ser criada).
+    // Com invalidate, o próximo ref.watch() dispara um novo fetch.
+    Future.microtask(() =>
+        ref.invalidate(movimentacoesProdutoProvider(widget.produtoId)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // ref.watch com widget.produtoId (acessado via widget. no State)
+    final asyncMovs =
+        ref.watch(movimentacoesProdutoProvider(widget.produtoId));
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Histórico — $nomeProduto'),
+        title: Text('Histórico — ${widget.nomeProduto}'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () =>
-                ref.invalidate(movimentacoesProdutoProvider(produtoId)),
+            onPressed: () => ref
+                .invalidate(movimentacoesProdutoProvider(widget.produtoId)),
           ),
         ],
       ),
       body: switch (asyncMovs) {
+        // ... resto do build permanece igual, apenas troca produtoId por widget.produtoId
+        // e nomeProduto por widget.nomeProduto
         AsyncLoading() =>
           const Center(child: CircularProgressIndicator()),
-
         AsyncError(:final error) => Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.error_outline,
-                      size: 64, color: Colors.red),
+                  const Icon(Icons.error_outline, size: 64, color: Colors.red),
                   const SizedBox(height: 16),
                   Text(error.toString(), textAlign: TextAlign.center),
                   const SizedBox(height: 24),
                   FilledButton(
                     onPressed: () => ref.invalidate(
-                        movimentacoesProdutoProvider(produtoId)),
+                        movimentacoesProdutoProvider(widget.produtoId)),
                     child: const Text('Tentar novamente'),
                   ),
                 ],
               ),
             ),
           ),
-
         AsyncData(:final value) when value.isEmpty => Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.history,
-                    size: 64,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurfaceVariant),
+                Icon(Icons.history, size: 64,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
                 const SizedBox(height: 16),
                 const Text('Nenhuma movimentação registrada',
                     style: TextStyle(fontSize: 18)),
@@ -90,15 +109,12 @@ class MovimentacoesScreen extends ConsumerWidget {
                 Text(
                   'As movimentações aparecerão após\na conclusão de conferências.',
                   style: TextStyle(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurfaceVariant),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
                   textAlign: TextAlign.center,
                 ),
               ],
             ),
           ),
-
         AsyncData(:final value) => ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: value.length,
@@ -108,7 +124,6 @@ class MovimentacoesScreen extends ConsumerWidget {
     );
   }
 }
-
 class _MovimentacaoCard extends StatelessWidget {
   final Movimentacao mov;
   const _MovimentacaoCard({required this.mov});

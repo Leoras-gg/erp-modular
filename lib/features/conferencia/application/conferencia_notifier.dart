@@ -32,6 +32,7 @@ import '../../../features/auth/application/auth_provider.dart';
 import '../domain/conferencia.dart';
 import '../domain/i_conferencia_repository.dart';
 import '../infrastructure/supabase_conferencia_repository.dart';
+import '../../notas/application/nota_fiscal_notifier.dart';
 
 // Provider do repositório — compartilhado pelos dois notifiers
 final conferenciaRepositoryProvider =
@@ -229,43 +230,71 @@ class ConferenciaAtivaNotifier
     }
 
     if (conf.temDivergencia) {
-      // Com divergência → supervisor aprova
+      // Com divergência → supervisor aprova antes de finalizar
+      // Não registra movimentações ainda
       final resultado = await _repo.atualizarStatus(
         id: conferenciaId,
         novoStatus: 'aguardando_aprovacao',
       );
       _aplicarResultado(resultado);
-    } else {
-      // Sem divergência → registra movimentações e finaliza
-      state = ConferenciaAtivaCarregando();
-
-      final itensConferencia = conf.itens
-          .where((i) => i.quantidadeConferida > 0)
-          .map((i) => {
-                'nota_item_id': i.notaItemId,
-                'quantidade_conferida': i.quantidadeConferida,
-                'lote': null,
-              })
-          .toList();
-
-      final movResult = await ref
-          .read(movimentacaoRepositoryProvider)
-          .registrarEntradaConferencia(
-            conferenciaId: conferenciaId,
-            notaId: conf.notaId,
-            operadorId: _operadorId,
-            empresaId: _empresaId,
-            itensConferencia: itensConferencia,
-          );
-
-      if (movResult is Falha) {
-        state = ConferenciaAtivaErro((movResult as Falha).mensagem);
-        return;
-      }
-
-      await carregar(conferenciaId);
+      return;
     }
+
+    // ============================================================
+    // Sem divergência → registra movimentações e finaliza
+    // ============================================================
+    state = ConferenciaAtivaCarregando();
+
+    final itensConferencia = conf.itens
+        .where((i) => i.quantidadeConferida > 0)
+        .map((i) => {
+              'nota_item_id': i.notaItemId,
+              'quantidade_conferida': i.quantidadeConferida,
+              'lote': null, // lote resolvido via nota_itens no repositório
+            })
+        .toList();
+
+    // Passo 1: registra movimentações de entrada no estoque
+    final movResult = await ref
+        .read(movimentacaoRepositoryProvider)
+        .registrarEntradaConferencia(
+          conferenciaId: conferenciaId,
+          notaId: conf.notaId,
+          operadorId: _operadorId,
+          empresaId: _empresaId,
+          itensConferencia: itensConferencia,
+        );
+
+    if (movResult is Falha) {
+      state = ConferenciaAtivaErro((movResult as Falha).mensagem);
+      return;
+    }
+
+    // Passo 2: atualiza status da conferência para 'concluida'
+    // Via conferenciaRepository — separação correta de responsabilidades
+    // O repositório de movimentações não deve atualizar a conferência
+    final finalizarResult = await _repo.atualizarStatus(
+      id: conferenciaId,
+      novoStatus: 'concluida',
+    );
+
+    if (finalizarResult is Falha) {
+      state = ConferenciaAtivaErro((finalizarResult as Falha).mensagem);
+      return;
+    }
+
+    // Passo 3: recarrega a conferência ativa com status atualizado
+    await carregar(conferenciaId);
+
+    // Passo 4: invalida providers dependentes para propagar o evento
+    // conferenciaListaProvider → lista de conferências da nota
+    // notaFiscalProvider → badge de status da nota (Importada → Conferida)
+    // Conceito: ref.invalidate() descarta o cache e força recarregamento
+    // no próximo acesso — não dispara imediatamente
+    ref.invalidate(conferenciaListaProvider);
+    ref.invalidate(notaFiscalProvider);
   }
+
   Future<void> cancelar(String id, String motivo) async {
     final resultado =
         await _repo.cancelar(id: id, motivo: motivo);

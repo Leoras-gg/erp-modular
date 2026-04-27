@@ -236,13 +236,13 @@ class SupabaseMovimentacaoRepository implements IMovimentacaoRepository {
             .eq('id', produtoId);
       }
 
-      // Atualiza status da nota para 'conferida'
-      await _client
-          .from(_tabelaNotas)
-          .update({'status': 'conferida'})
-          .eq('id', notaId);
+      // NOTA: o UPDATE de status='conferida' na nota foi movido para
+      // o ConferenciaAtivaNotifier.tentarFinalizar(), que chama
+      // conferenciaRepository.atualizarStatus() após registrar as movimentações.
+      // Separação de responsabilidades: este repositório só cria movimentações.
 
       return Sucesso(movsCriadas);
+
     } on PostgrestException catch (e) {
       return Falha(
         TipoFalha.servidor,
