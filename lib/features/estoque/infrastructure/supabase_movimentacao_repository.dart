@@ -18,7 +18,7 @@ class SupabaseMovimentacaoRepository implements IMovimentacaoRepository {
   static const _tabela             = 'movimentacoes';
   static const _tabelaProdutos     = 'produtos';
   static const _tabelaNotaItens    = 'nota_itens';
-  //static const _tabelaConferencias = 'conferencias';
+  static const _tabelaConferencias = 'conferencias';
   static const _tabelaNotas        = 'notas_fiscais';
   static const _tabelaBarcodes     = 'produto_barcodes';
 
@@ -103,36 +103,97 @@ class SupabaseMovimentacaoRepository implements IMovimentacaoRepository {
     required String empresaId,
     required List<Map<String, dynamic>> itensConferencia,
   }) async {
-    final movsCriadas = <Movimentacao>[];
+    // ============================================================
+    // GUARDA: verifica se já existe movimentação para esta nota
+    // ============================================================
+    // Impede movimentações duplicadas caso algum bug de UI permita
+    // chamar esta função mais de uma vez para a mesma nota.
+    try {
+      final existentes = await _client
+          .from(_tabela)
+          .select('id')
+          .eq('nota_id', notaId)
+          .eq('origem', 'conferencia')
+          .limit(1);
+
+      if ((existentes as List).isNotEmpty) {
+        return Falha(
+          TipoFalha.dominio,
+          'Já existem movimentações registradas para esta nota fiscal. '
+          'Cada nota gera movimentações apenas uma vez.',
+        );
+      }
+    } on PostgrestException catch (e) {
+      return Falha(TipoFalha.servidor,
+          'Erro ao verificar movimentações existentes: ${e.message}',
+          detalhes: e);
+    }
+
+    // ============================================================
+    // AGRUPAMENTO: soma itens do mesmo produto_id
+    // ============================================================
+    // REGRA DE NEGÓCIO: se a nota tem múltiplos itens que apontam
+    // para o mesmo produto cadastrado, eles se somam em UMA única
+    // movimentação. Isso evita N entradas no histórico para o mesmo
+    // produto vindo da mesma nota.
+    //
+    // Exemplo: nota tem "Parafuso M8 cx 1" (10 un) e "Parafuso M8 cx 2"
+    // (5 un), ambos vinculados ao produto "Parafuso M8" no sistema.
+    // Resultado: UMA movimentação de +15 un para Parafuso M8.
+
+    // Mapa de agrupamento: produto_id → {quantidade_total, lote}
+    final agrupado = <String, Map<String, dynamic>>{};
     int itensPulados = 0;
 
+    for (final item in itensConferencia) {
+      final notaItemId = item['nota_item_id'] as String?;
+      final qtdConferida =
+          (item['quantidade_conferida'] as num?)?.toDouble() ?? 0;
+
+      if (notaItemId == null || qtdConferida <= 0) continue;
+
+      // Resolve produto_id via nota_itens
+      final notaItemData = await _client
+          .from(_tabelaNotaItens)
+          .select('produto_id, lote')
+          .eq('id', notaItemId)
+          .maybeSingle();
+
+      if (notaItemData == null) continue;
+
+      final produtoId = notaItemData['produto_id'] as String?;
+      if (produtoId == null) {
+        itensPulados++;
+        continue;
+      }
+
+      final lote =
+          notaItemData['lote'] as String? ?? item['lote'] as String?;
+
+      // Acumula no agrupamento
+      if (agrupado.containsKey(produtoId)) {
+        agrupado[produtoId]!['quantidade'] =
+            (agrupado[produtoId]!['quantidade'] as double) + qtdConferida;
+        // Lote: mantém o primeiro encontrado (convencional)
+      } else {
+        agrupado[produtoId] = {
+          'produto_id': produtoId,
+          'quantidade': qtdConferida,
+          'lote': lote,
+        };
+      }
+    }
+
+    // ============================================================
+    // INSERT: uma movimentação por produto agrupado
+    // ============================================================
+    final movsCriadas = <Movimentacao>[];
+
     try {
-      for (final item in itensConferencia) {
-        final notaItemId = item['nota_item_id'] as String?;
-        final qtdConferida =
-            (item['quantidade_conferida'] as num?)?.toDouble() ?? 0;
-
-        if (notaItemId == null || qtdConferida <= 0) continue;
-
-        // Resolve produto_id via nota_itens
-        // ConferenciaItem só tem nota_item_id, não produto_id diretamente
-        final notaItemData = await _client
-            .from(_tabelaNotaItens)
-            .select('produto_id, lote')
-            .eq('id', notaItemId)
-            .maybeSingle();
-
-        if (notaItemData == null) continue;
-
-        final produtoId = notaItemData['produto_id'] as String?;
-        if (produtoId == null) {
-          // Item não vinculado — não gera movimentação
-          itensPulados++;
-          continue;
-        }
-
-        final lote =
-            notaItemData['lote'] as String? ?? item['lote'] as String?;
+      for (final entry in agrupado.entries) {
+        final produtoId = entry.key;
+        final qtdTotal = entry.value['quantidade'] as double;
+        final lote = entry.value['lote'] as String?;
 
         // Busca saldo atual
         final prodData = await _client
@@ -143,16 +204,16 @@ class SupabaseMovimentacaoRepository implements IMovimentacaoRepository {
 
         final saldoAnterior =
             (prodData['quantidade_atual'] as num).toDouble();
-        final saldoPosterior = saldoAnterior + qtdConferida;
+        final saldoPosterior = saldoAnterior + qtdTotal;
 
-        // Cria a movimentação
+        // Cria movimentação agrupada
         final movData = await _client
             .from(_tabela)
             .insert({
               'empresa_id': empresaId,
               'produto_id': produtoId,
               'tipo': 'entrada',
-              'quantidade': qtdConferida,
+              'quantidade': qtdTotal,
               'saldo_anterior': saldoAnterior,
               'saldo_posterior': saldoPosterior,
               'origem': 'conferencia',
@@ -176,7 +237,7 @@ class SupabaseMovimentacaoRepository implements IMovimentacaoRepository {
 
       // Atualiza status da nota para 'conferida'
       await _client
-          .from(_tabelaNotas)
+          .from(_tabelaNotasFiscais)
           .update({'status': 'conferida'})
           .eq('id', notaId);
 

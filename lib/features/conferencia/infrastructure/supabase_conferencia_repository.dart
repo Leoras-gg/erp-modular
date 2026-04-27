@@ -25,7 +25,7 @@ class SupabaseConferenciaRepository implements IConferenciaRepository {
 
   static const _tabelaConferencias   = 'conferencias';
   static const _tabelaItens          = 'conferencia_itens';
-  //static const _tabelaNotas          = 'notas_fiscais';
+  static const _tabelaNotas          = 'notas_fiscais';
 
   @override
   Future<Resultado<List<Conferencia>>> buscarPorNota(String notaId) async {
@@ -141,9 +141,37 @@ class SupabaseConferenciaRepository implements IConferenciaRepository {
     required String empresaId,
     required List<Map<String, dynamic>> itensNota,
   }) async {
+    // ============================================================
+    // GUARDA DE NEGÓCIO: verifica se já existe conferência ativa
+    // ============================================================
+    // A constraint do banco já impede duplicidade, mas verificamos
+    // antes para dar uma mensagem de erro clara ao usuário — em vez
+    // do erro genérico do PostgreSQL.
+    try {
+      final ativas = await _client
+          .from(_tabelaConferencias)
+          .select('id, status')
+          .eq('nota_id', notaId)
+          .isFilter('inativo_em', null)
+          .neq('status', 'cancelada');
+
+      if ((ativas as List).isNotEmpty) {
+        final status = ativas.first['status'] as String;
+        return Falha(
+          TipoFalha.dominio,
+          'Esta nota já possui uma conferência $status. '
+          'Finalize ou cancele a conferência existente antes de criar uma nova.',
+        );
+      }
+    } on PostgrestException catch (e) {
+      return Falha(TipoFalha.servidor,
+          'Erro ao verificar conferências existentes: ${e.message}',
+          detalhes: e);
+    }
+
     String? conferenciaId;
     try {
-      // ---- Passo 1: cria a conferência ----
+      // Passo 1: cria a conferência já em 'em_andamento'
       final confData = await _client
           .from(_tabelaConferencias)
           .insert({
@@ -159,34 +187,41 @@ class SupabaseConferenciaRepository implements IConferenciaRepository {
 
       conferenciaId = confData['id'] as String;
 
-      // ---- Passo 2: cria um ConferenciaItem para cada ItemNota ----
-      // Cada item começa com quantidade_conferida = 0
-      // quantidade_esperada = quantidade que a nota diz que deve chegar
-      final itensParaSalvar = itensNota.map((item) => {
-        'conferencia_id': conferenciaId,
-        'nota_item_id': item['id'] as String,
-        'quantidade_esperada': item['quantidade'],
-        'quantidade_conferida': 0,
-        'criado_em': DateTime.now().toIso8601String(),
-      }).toList();
+      // Passo 2: cria um ConferenciaItem para cada ItemNota
+      final itensParaSalvar = itensNota
+          .map((item) => {
+                'conferencia_id': conferenciaId,
+                'nota_item_id': item['id'] as String,
+                'quantidade_esperada': item['quantidade'],
+                'quantidade_conferida': 0,
+                'criado_em': DateTime.now().toIso8601String(),
+              })
+          .toList();
 
       await _client.from(_tabelaItens).insert(itensParaSalvar);
 
-      // // ---- Passo 3: atualiza status da nota para em_conferencia ----
-      // await _client
-      //     .from(_tabelaNotas)
-      //     .update({'status': 'em_conferencia'})
-      //     .eq('id', notaId);
+      // Passo 3: atualiza status da nota
+      await _client
+          .from(_tabelaNotas)
+          .update({'status': 'em_conferencia'})
+          .eq('id', notaId);
 
-      // ---- Passo 4: retorna a conferência completa ----
       return buscarPorId(conferenciaId);
     } on PostgrestException catch (e) {
-      // Rollback: apaga conferência parcialmente criada
+      // Rollback da conferência criada parcialmente
       if (conferenciaId != null) {
         await _client
             .from(_tabelaConferencias)
             .delete()
             .eq('id', conferenciaId);
+      }
+      // Código 23505 = unique_violation — constraint do banco ativou
+      if (e.code == '23505') {
+        return Falha(
+          TipoFalha.dominio,
+          'Esta nota já possui uma conferência ativa. '
+          'Finalize ou cancele a conferência existente.',
+        );
       }
       return Falha(TipoFalha.servidor,
           'Erro ao iniciar conferência: ${e.message} (${e.code})',
